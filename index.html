@@ -449,7 +449,17 @@ function exitEvent(){
   topTitle.textContent = "年度烤肉聚會";
   renderEventList(allEvents);
 }
-backBtn.onclick = exitEvent;
+// 返回鍵是一層一層退：子頁面（認領/我的清單/花費/結算/參與人員）先退回活動儀表板，
+// 儀表板再退才會離開這個活動、回到歷年列表
+backBtn.onclick = ()=>{
+  if(currentTab !== "overview"){
+    currentTab = "overview";
+    highlightTab();
+    renderActiveTab();
+  } else {
+    exitEvent();
+  }
+};
 
 tabbar.querySelectorAll("button").forEach(btn=>{
   btn.addEventListener("click", ()=>{
