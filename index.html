@@ -111,19 +111,21 @@
     background:#fff;color:var(--ink-dim);cursor:pointer;white-space:nowrap}
   .chip.active{background:var(--accent);border-color:var(--accent);color:#fff;font-weight:600}
   .cat-title{font-size:14px;font-weight:700;color:var(--ink);margin:16px 4px 6px}
-  .item-card{background:var(--card);border:1.5px solid var(--line);border-radius:12px;padding:12px;margin-bottom:8px}
-  .item-card.full{background:#eef7ee;border-color:#a9d6b0}
-  .item-card.partial{background:#fff8ea;border-color:#eccb85}
-  .item-card .top{display:flex;justify-content:space-between;align-items:flex-start;gap:8px}
-  .item-card .name{font-weight:600;font-size:16px;display:flex;align-items:center}
-  .item-card .name .subnote{font-weight:400;font-size:12px;color:var(--ink-dim);margin-left:4px}
-  .item-card .qty{font-size:13px;color:var(--ink-dim);white-space:nowrap;padding-top:2px}
-  .item-card .claimants{font-size:13px;color:var(--ink-dim);margin-top:6px;display:flex;flex-wrap:wrap;gap:6px}
-  .item-card .claimants .tag{background:#e2e9e2;border-radius:999px;padding:3px 10px}
-  .item-card.partial .claimants .tag{background:#f3e6c4}
-  .item-card .claimants .tag.mine{background:#fbe3d3;color:var(--accent);font-weight:700}
-  .item-card .actions{margin-top:8px;display:flex;gap:8px}
-  .statusicon{font-size:23px;margin-right:6px;flex:0 0 auto}
+  .claim-row{display:flex;align-items:center;gap:10px;padding:10px 8px;border-radius:10px;
+    border-left:4px solid transparent;margin-bottom:4px;cursor:pointer;user-select:none;
+    -webkit-tap-highlight-color:transparent}
+  .claim-row:active{filter:brightness(0.97)}
+  .claim-row.full{background:#eef7ee}
+  .claim-row.partial{background:#fff8ea}
+  .claim-row.mine{border-left-color:var(--accent)}
+  .claim-row .body{flex:1;min-width:0}
+  .claim-row .nm{font-weight:600;font-size:16px;line-height:1.3;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .claim-row .nm .subnote{font-weight:400;font-size:12px;color:var(--ink-dim);margin-left:4px}
+  .claim-row .sub{font-size:12.5px;color:var(--ink-dim);margin-top:1px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .claim-row .sub .mine-tag{color:var(--accent);font-weight:700}
+  .claim-row .qty{font-size:13px;color:var(--ink-dim);white-space:nowrap;flex:0 0 auto}
+  .claim-row .qtyEditBtn{flex:0 0 auto}
+  .statusicon{font-size:26px;flex:0 0 auto}
   .statusicon.full{color:var(--ok)}
   .statusicon.partial{color:var(--warn)}
   .statusicon.none{color:var(--ink-dim)}
@@ -654,22 +656,20 @@ function renderClaimsTab(){
       const rows = byCat[c.id].map(it=>{
         const statusClass = it.claimedQty<=0 ? "none" : (it.remaining>0 ? "partial" : "full");
         const statusIconName = statusClass==="full" ? "check_circle" : (statusClass==="partial" ? "pending" : "radio_button_unchecked");
-        const mineHasClaim = mine && it.itClaims.some(c2=>c2.familyId===mine.id);
-        const tags = it.itClaims.map(c2=>
-          `<span class="tag ${mine && c2.familyId===mine.id ? "mine" : ""}">${esc(famName(c2.familyId))} ×${c2.qty}</span>`
-        ).join("");
-        return `<div class="item-card ${statusClass}">
-          <div class="top">
-            <div class="name">
-              <span class="msi statusicon ${statusClass}${statusClass!=="none"?" fill":""}">${statusIconName}</span>
-              <span>${esc(it.name)}${it.note?`<span class="subnote">${esc(it.note)}</span>`:""}</span>
-            </div>
-            <div class="qty">${it.claimedQty}/${it.qtyNeeded} ${esc(it.unit||"")}</div>
+        const mineClaim = mine && it.itClaims.find(c2=>c2.familyId===mine.id);
+        const othersLabel = it.itClaims.filter(c2=>!mineClaim || c2.id!==mineClaim.id)
+          .map(c2=>`${esc(famName(c2.familyId))}×${c2.qty}`).join("、");
+        const subParts = [];
+        if(mineClaim) subParts.push(`<span class="mine-tag">我 ×${mineClaim.qty}</span>`);
+        if(othersLabel) subParts.push(othersLabel);
+        return `<div class="claim-row ${statusClass} ${mineClaim?"mine":""}" data-id="${it.id}">
+          <span class="msi statusicon ${statusClass}${statusClass!=="none"?" fill":""}">${statusIconName}</span>
+          <div class="body">
+            <div class="nm">${esc(it.name)}${it.note?`<span class="subnote">${esc(it.note)}</span>`:""}</div>
+            ${subParts.length ? `<div class="sub">${subParts.join("　")}</div>` : ""}
           </div>
-          ${tags ? `<div class="claimants">${tags}</div>` : ""}
-          <div class="actions">
-            <button class="btn secondary claimBtn" data-id="${it.id}" style="flex:1">${mineHasClaim ? "修改我的認領" : "我認領"}</button>
-          </div>
+          <div class="qty">${it.claimedQty}/${it.qtyNeeded}${esc(it.unit||"")}</div>
+          <button class="iconbtn qtyEditBtn" data-id="${it.id}"><span class="msi" style="font-size:20px">tune</span></button>
         </div>`;
       }).join("");
       return `<div class="cat-title">${esc(c.name)}</div>${rows}`;
@@ -687,13 +687,86 @@ function renderClaimsTab(){
       <button class="chip ${claimFilter==='mine'?'active':''}" data-f="mine">我認領的</button>
     </div>
     <div class="chips">${catChips}</div>
+    <button class="btn secondary block" id="addItemBtn" style="margin-bottom:12px">
+      <span class="msi" style="font-size:18px">add</span> 新增項目
+    </button>
     ${catBlocks}
   `;
   root.querySelectorAll(".chip[data-f]").forEach(b=> b.onclick = ()=>{ claimFilter = b.dataset.f; renderClaimsTab(); });
   root.querySelectorAll(".chip[data-c]").forEach(b=> b.onclick = ()=>{ categoryFilter = b.dataset.c; renderClaimsTab(); });
-  root.querySelectorAll(".claimBtn").forEach(b=>{
-    b.onclick = ()=> ensureIdentityThen(fam=> openClaimModal(items.find(i=>i.id===b.dataset.id), fam));
+  document.getElementById("addItemBtn").onclick = openAddItemModal;
+  root.querySelectorAll(".claim-row").forEach(row=>{
+    row.addEventListener("click", (ev)=>{
+      if(ev.target.closest(".qtyEditBtn")) return;
+      ensureIdentityThen(fam=> toggleClaim(items.find(i=>i.id===row.dataset.id), fam));
+    });
   });
+  root.querySelectorAll(".qtyEditBtn").forEach(b=>{
+    b.addEventListener("click", (ev)=>{
+      ev.stopPropagation();
+      ensureIdentityThen(fam=> openClaimModal(items.find(i=>i.id===b.dataset.id), fam));
+    });
+  });
+}
+
+// 點一下直接認領／取消認領（大部分項目需求量都是1，不用每次都跳數量視窗）
+async function toggleClaim(item, fam){
+  const itClaims = claims.filter(c=>c.itemId===item.id);
+  const mineClaim = itClaims.find(c=>c.familyId===fam.id);
+  if(mineClaim){
+    await deleteDoc(doc(db, `events/${currentEvent.id}/claims/${mineClaim.id}`));
+    toast("已取消認領");
+    return;
+  }
+  const claimedQty = itClaims.reduce((s,c)=>s+(Number(c.qty)||0),0);
+  const remaining = Math.max(0, (item.qtyNeeded||0) - claimedQty);
+  const qty = remaining>0 ? remaining : 1;
+  await addDoc(collection(db, `events/${currentEvent.id}/claims`), {
+    itemId: item.id, familyId: fam.id, qty, done:false, createdAt: serverTimestamp()
+  });
+  toast(remaining>0 ? "已認領 ×"+qty : "已超量認領，還是幫你記錄了");
+}
+
+// ---------- 新增項目（可順便新增分類） ----------
+function openAddItemModal(){
+  const catOptions = categories.map(c=>`<option value="${c.id}">${esc(c.name)}</option>`).join("");
+  root_showModal(`
+    <h3>新增項目</h3>
+    <div class="field"><label>分類</label>
+      <select id="itCat">${catOptions}<option value="__new__">＋ 新增分類…</option></select>
+    </div>
+    <div class="field" id="newCatField" hidden><label>新分類名稱</label><input id="itNewCat" placeholder="例：飲料" /></div>
+    <div class="field"><label>項目名稱</label><input id="itName" placeholder="例：木炭" /></div>
+    <div class="row">
+      <div class="field"><label>單位</label><input id="itUnit" value="個" /></div>
+      <div class="field"><label>需要數量</label><input id="itQty" type="number" min="1" value="1" /></div>
+    </div>
+    <div class="field"><label>備註</label><input id="itNote" placeholder="選填" /></div>
+    <button class="btn block" id="saveItem">新增</button>
+  `);
+  const catSel = document.getElementById("itCat");
+  if(categoryFilter!=="all") catSel.value = categoryFilter;
+  catSel.onchange = ()=>{ document.getElementById("newCatField").hidden = catSel.value!=="__new__"; };
+  document.getElementById("saveItem").onclick = async ()=>{
+    const name = document.getElementById("itName").value.trim();
+    if(!name){ toast("請填項目名稱"); return; }
+    let categoryId = catSel.value;
+    if(categoryId==="__new__"){
+      const newName = document.getElementById("itNewCat").value.trim();
+      if(!newName){ toast("請填新分類名稱"); return; }
+      const catRef = await addDoc(collection(db, `events/${currentEvent.id}/categories`), {name:newName, order: categories.length});
+      categoryId = catRef.id;
+    }
+    const sameCount = items.filter(i=>i.categoryId===categoryId).length;
+    await addDoc(collection(db, `events/${currentEvent.id}/items`), {
+      categoryId, name,
+      unit: document.getElementById("itUnit").value.trim() || "個",
+      qtyNeeded: Number(document.getElementById("itQty").value) || 1,
+      note: document.getElementById("itNote").value.trim(),
+      order: sameCount
+    });
+    toast("已新增項目"); closeModal();
+  };
 }
 
 function openClaimModal(item, fam){
