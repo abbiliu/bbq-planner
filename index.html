@@ -133,6 +133,23 @@
     margin-bottom:10px;padding:0 4px}
   .fam-picker label.opt{display:flex;align-items:center;gap:8px;padding:10px 4px;border-bottom:1px solid var(--line);font-size:15px}
   .fam-picker label.opt:last-child{border-bottom:none}
+  .maplink{display:flex;align-items:center;gap:8px;margin-top:12px;padding:10px 12px;
+    background:#f6f1e9;border-radius:10px;font-size:14px;color:var(--ink);text-decoration:none}
+  .maplink span:nth-child(2){flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .maplink .msi:last-child{color:var(--accent)}
+  .menu-grid{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:10px}
+  .menu-card{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:16px;
+    text-align:left;cursor:pointer;display:flex;flex-direction:column;gap:6px;font-family:inherit;
+    -webkit-tap-highlight-color:transparent}
+  .menu-card:active{background:#f6f1e9}
+  .menu-card .msi{font-size:26px;color:var(--accent)}
+  .menu-card .mc-title{font-weight:700;font-size:15px}
+  .menu-card .mc-sub{font-size:12px;color:var(--ink-dim)}
+  .menu-card.wide{width:100%;flex-direction:row;align-items:center;gap:14px;margin-top:14px}
+  .menu-card.wide .mc-body{flex:1}
+  .menu-card.wide .mc-arrow{color:var(--ink-dim);font-size:22px}
+  .backlink{display:flex;align-items:center;gap:4px;border:none;background:none;color:var(--ink-dim);
+    font-size:14px;padding:6px 4px;margin-bottom:6px;cursor:pointer;font-family:inherit}
 </style>
 </head>
 <body>
@@ -406,7 +423,7 @@ function enterEvent(e){
   clearUnsubs();
   unsubs.push(onSnapshot(collection(db, `events/${e.id}/families`), snap=>{
     families = snap.docs.map(d=>({id:d.id, ...d.data()}));
-    if(currentTab==="overview" || currentTab==="claims") renderActiveTab();
+    if(currentTab==="overview" || currentTab==="families" || currentTab==="claims") renderActiveTab();
   }));
   unsubs.push(onSnapshot(query(collection(db, `events/${e.id}/categories`), orderBy("order")), snap=>{
     categories = snap.docs.map(d=>({id:d.id, ...d.data()}));
@@ -414,11 +431,11 @@ function enterEvent(e){
   }));
   unsubs.push(onSnapshot(query(collection(db, `events/${e.id}/items`), orderBy("order")), snap=>{
     items = snap.docs.map(d=>({id:d.id, ...d.data()}));
-    if(currentTab==="claims") renderActiveTab();
+    if(currentTab==="overview" || currentTab==="claims" || currentTab==="mine") renderActiveTab();
   }));
   unsubs.push(onSnapshot(collection(db, `events/${e.id}/claims`), snap=>{
     claims = snap.docs.map(d=>({id:d.id, ...d.data()}));
-    if(currentTab==="claims") renderActiveTab();
+    if(currentTab==="overview" || currentTab==="claims" || currentTab==="mine") renderActiveTab();
   }));
   renderActiveTab();
 }
@@ -446,18 +463,85 @@ function highlightTab(){
 }
 function renderActiveTab(){
   if(!currentEvent) return;
-  if(currentTab==="overview") renderOverviewTab();
+  if(currentTab==="overview") renderDashboard();
+  else if(currentTab==="families") renderFamiliesTab();
   else if(currentTab==="claims") renderClaimsTab();
   else root.innerHTML = `<div class="empty">這個分頁下一階段實作</div>`;
 }
 
-// ---------- 4.2＋4.3 總覽（活動資訊 + 家庭名單） ----------
-function renderOverviewTab(){
+// ---------- 首頁儀表板：活動主要資訊 + 快捷選單 ----------
+function renderDashboard(){
   const e = currentEvent;
-  const totals = families.reduce((a,f)=>{
-    a.adults += Number(f.adults)||0; a.kids += Number(f.kids)||0; a.pets += Number(f.pets)||0; return a;
-  }, {adults:0, kids:0, pets:0});
+  const mine = myFamilyInEvent();
 
+  const withClaims = items.map(it=>{
+    const claimedQty = claims.filter(c=>c.itemId===it.id).reduce((s,c)=>s+(Number(c.qty)||0),0);
+    return {...it, claimedQty};
+  });
+  const fullCount = withClaims.filter(it=>it.claimedQty>0 && it.claimedQty>=it.qtyNeeded).length;
+  const myClaimCount = mine ? claims.filter(c=>c.familyId===mine.id).length : 0;
+
+  const totals = families.reduce((a,f)=>{
+    a.adults += Number(f.adults)||0; a.kids += Number(f.kids)||0; return a;
+  }, {adults:0, kids:0});
+
+  const addrOrName = (e.venue?.address || e.venue?.name || "").trim();
+  const mapsUrl = addrOrName ? `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(addrOrName)}` : "";
+
+  root.innerHTML = `
+    <div class="card">
+      <div style="display:flex;justify-content:space-between;align-items:flex-start">
+        <div>
+          <div style="font-size:21px;font-weight:800">${e.year}　${esc(e.venue?.name||"")}</div>
+          <div style="font-size:14px;color:var(--ink-dim);margin-top:4px">
+            <span class="msi" style="font-size:16px;vertical-align:-3px">calendar_month</span>
+            ${e.checkIn ? esc(e.checkIn) : "日期未定"}${e.checkOut ? " ～ "+esc(e.checkOut) : ""}
+          </div>
+        </div>
+        <button class="iconbtn" id="editEvInfo"><span class="msi">edit</span></button>
+      </div>
+      ${mapsUrl ? `<a class="maplink" href="${mapsUrl}" target="_blank" rel="noopener">
+        <span class="msi" style="font-size:18px">location_on</span>
+        <span>${esc(addrOrName)}</span>
+        <span class="msi" style="font-size:18px">navigation</span>
+      </a>` : ""}
+    </div>
+
+    <button class="menu-card wide" data-go="claims">
+      <span class="msi">checklist</span>
+      <div class="mc-body"><div class="mc-title">認領物資</div><div class="mc-sub">已滿足 ${fullCount}/${items.length} 項</div></div>
+      <span class="msi mc-arrow">chevron_right</span>
+    </button>
+    <div class="menu-grid">
+      <button class="menu-card" data-go="families">
+        <span class="msi">group</span>
+        <div class="mc-title">參與人員</div>
+        <div class="mc-sub">${families.length} 家庭・${totals.adults}大${totals.kids}小</div>
+      </button>
+      <button class="menu-card" data-go="mine">
+        <span class="msi">task_alt</span>
+        <div class="mc-title">我的準備清單</div>
+        <div class="mc-sub">${mine ? "已認領 "+myClaimCount+" 項" : "尚未設定身分"}</div>
+      </button>
+    </div>
+
+    <button class="btn secondary block" id="toHistoryBtn" style="margin-top:18px">
+      <span class="msi" style="font-size:18px">history</span> 查看歷年紀錄
+    </button>
+  `;
+  document.getElementById("editEvInfo").onclick = openEventInfoModal;
+  root.querySelectorAll(".menu-card").forEach(b=>{
+    b.addEventListener("click", ()=>{ currentTab = b.dataset.go; highlightTab(); renderActiveTab(); });
+  });
+  document.getElementById("toHistoryBtn").onclick = ()=>{
+    exitEvent();
+    const hs = document.getElementById("historySection");
+    if(hs) hs.hidden = false;
+  };
+}
+
+// ---------- 4.3 參與人員（家庭名單） ----------
+function renderFamiliesTab(){
   const famRows = families.map(f=>`
     <div class="list-row">
       <div class="info">
@@ -471,21 +555,7 @@ function renderOverviewTab(){
     </div>`).join("") || `<div class="empty" style="padding:20px 0">還沒有家庭，先新增一個</div>`;
 
   root.innerHTML = `
-    <div class="card">
-      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">
-        <div style="font-weight:700">活動資訊</div>
-        <button class="iconbtn" id="editEvInfo"><span class="msi">edit</span></button>
-      </div>
-      <div style="font-size:14px;color:var(--ink-dim);line-height:2">
-        <span class="msi" style="font-size:17px">location_on</span> ${esc(e.venue?.name || "—")}<br/>
-        <span class="msi" style="font-size:17px">calendar_month</span> ${e.checkIn ? esc(e.checkIn) : "日期未定"}${e.checkOut ? " ～ "+esc(e.checkOut) : ""}
-      </div>
-      <div class="stat-grid">
-        <div class="stat"><div class="num">${families.length}</div><div class="lbl">家庭</div></div>
-        <div class="stat"><div class="num">${totals.adults}</div><div class="lbl">大人</div></div>
-        <div class="stat"><div class="num">${totals.kids}</div><div class="lbl">小孩</div></div>
-      </div>
-    </div>
+    <button class="backlink" id="toDashboard"><span class="msi" style="font-size:18px">arrow_back</span> 返回</button>
     <div class="card">
       <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px">
         <div style="font-weight:700">家庭名單</div>
@@ -494,7 +564,7 @@ function renderOverviewTab(){
       ${famRows}
     </div>
   `;
-  document.getElementById("editEvInfo").onclick = openEventInfoModal;
+  document.getElementById("toDashboard").onclick = ()=>{ currentTab="overview"; highlightTab(); renderActiveTab(); };
   document.getElementById("addFam").onclick = ()=> openFamilyModal(null);
   root.querySelectorAll(".editFam").forEach(b=> b.onclick = ()=> openFamilyModal(families.find(f=>f.id===b.dataset.id)));
   root.querySelectorAll(".delFam").forEach(b=> b.onclick = ()=> deleteFamily(b.dataset.id));
@@ -820,12 +890,20 @@ function closeModal(){ if(modalMask){ modalMask.remove(); modalMask=null; } }
 
 // ---------- 啟動 ----------
 let allEvents = [];
+let autoEntered = false;
 function boot(){
   updateMeBadge();
 
   onSnapshot(query(collection(db,"events")), (snap)=>{
     allEvents = snap.docs.map(d=>({id:d.id, ...d.data()}));
     if(!currentEvent){
+      // 打開網站直接進今年的活動，省掉「先點一次才開始」這步；
+      // 只在第一次載入時自動導向，使用者手動按返回鍵回列表後就不會再被導回去
+      if(!autoEntered){
+        autoEntered = true;
+        const featured = [...allEvents].sort((a,b)=>(b.year||0)-(a.year||0)).find(e=>e.status==="planning" && !e.cancelled);
+        if(featured){ enterEvent(featured); return; }
+      }
       renderEventList(allEvents);
     } else {
       const updated = allEvents.find(e=>e.id===currentEvent.id);
