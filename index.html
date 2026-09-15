@@ -392,7 +392,7 @@ function openEventDetail(id){
 // ==================== 活動工作區（4.2起，含分頁） ====================
 let currentEvent = null;
 let currentTab = "overview";
-let families = [], categories = [], items = [], claims = [];
+let families = [], categories = [], items = [], claims = [], expenses = [];
 let claimFilter = "all";
 let categoryFilter = "all";
 let unsubs = [];
@@ -425,6 +425,10 @@ function enterEvent(e){
   unsubs.push(onSnapshot(collection(db, `events/${e.id}/claims`), snap=>{
     claims = snap.docs.map(d=>({id:d.id, ...d.data()}));
     if(currentTab==="overview" || currentTab==="claims" || currentTab==="mine") renderActiveTab();
+  }));
+  unsubs.push(onSnapshot(collection(db, `events/${e.id}/expenses`), snap=>{
+    expenses = snap.docs.map(d=>({id:d.id, ...d.data()}));
+    if(currentTab==="overview" || currentTab==="expenses" || currentTab==="settle") renderActiveTab();
   }));
   renderActiveTab();
 }
@@ -500,6 +504,8 @@ function renderActiveTab(){
   else if(currentTab==="families") renderFamiliesTab();
   else if(currentTab==="claims") renderClaimsTab();
   else if(currentTab==="mine") renderMineTab();
+  else if(currentTab==="expenses") renderExpensesTab();
+  else if(currentTab==="settle") renderSettleTab();
   else root.innerHTML = `<div class="empty">這個分頁下一階段實作</div>`;
 }
 
@@ -557,6 +563,16 @@ function renderDashboard(){
         <div class="mc-title">我的準備清單</div>
         <div class="mc-sub">${mine ? "已認領 "+myClaimCount+" 項" : "尚未設定身分"}</div>
       </button>
+      <button class="menu-card" data-go="expenses">
+        <span class="msi">payments</span>
+        <div class="mc-title">花費</div>
+        <div class="mc-sub">共 ${expenses.length} 筆</div>
+      </button>
+      <button class="menu-card" data-go="settle">
+        <span class="msi">calculate</span>
+        <div class="mc-title">結算</div>
+        <div class="mc-sub">查看應收應付</div>
+      </button>
     </div>
   `;
   document.getElementById("editEvInfo").onclick = openEventInfoModal;
@@ -605,8 +621,24 @@ function openEventInfoModal(){
     </div>
     <div class="field"><label>電話</label><input id="evPhone" value="${esc(e.venue?.phone||"")}" /></div>
     <div class="field"><label>備註（WiFi等）</label><input id="evNotes" value="${esc(e.venue?.notes||"")}" /></div>
+    <div class="field"><label>食材設備分攤方式</label>
+      <select id="evSplitMode">
+        <option value="perHead" ${e.splitMode==="perHead"?"selected":""}>按人頭，大人小孩一樣</option>
+        <option value="perHeadKidHalf" ${e.splitMode==="perHeadKidHalf"?"selected":""}>按人頭，小孩半價</option>
+        <option value="perHeadKidFree" ${e.splitMode==="perHeadKidFree"?"selected":""}>按人頭，小孩不算</option>
+        <option value="perHeadKidFixed" ${e.splitMode==="perHeadKidFixed"?"selected":""}>按人頭，小孩固定收費，剩餘大人均分</option>
+        <option value="perFamily" ${e.splitMode==="perFamily"?"selected":""}>按家庭均分</option>
+      </select>
+    </div>
+    <div class="field" id="kidFixedFeeField" ${e.splitMode==="perHeadKidFixed"?"":"hidden"}>
+      <label>每位小孩固定收費（元）</label>
+      <input id="evKidFixedFee" type="number" min="0" value="${e.kidFixedFee||0}" />
+    </div>
     <button class="btn block" id="saveEvInfo">儲存</button>
   `);
+  document.getElementById("evSplitMode").onchange = (ev)=>{
+    document.getElementById("kidFixedFeeField").hidden = ev.target.value !== "perHeadKidFixed";
+  };
   document.getElementById("saveEvInfo").onclick = async ()=>{
     await updateDoc(doc(db,"events",e.id), {
       checkIn: document.getElementById("evCheckIn").value || null,
@@ -617,7 +649,9 @@ function openEventInfoModal(){
         phone: document.getElementById("evPhone").value.trim(),
         mapUrl: e.venue?.mapUrl || "",
         notes: document.getElementById("evNotes").value.trim(),
-      }
+      },
+      splitMode: document.getElementById("evSplitMode").value,
+      kidFixedFee: Number(document.getElementById("evKidFixedFee")?.value) || 0,
     });
     toast("已儲存"); closeModal();
   };
@@ -969,8 +1003,192 @@ function copyMineListAsText(fam, byCat){
   let text = `${currentEvent.year} ${currentEvent.venue?.name||""} － ${fam.name} 準備清單\n`;
   categories.filter(cat=> byCat[cat.id]?.length).forEach(cat=>{
     text += `\n【${cat.name}】\n`;
-    byCat[cat.id].forEach(c=>{ text += `${c.done?"☑":"☐"} ${c.item.name} ${c.qty}${c.item.unit||""}\n`; });
+    byCat[cat.id].forEach(c=>{ text += `${c.item.name} ${c.qty}${c.item.unit||""}${c.done?"（已完成）":""}\n`; });
   });
+  navigator.clipboard.writeText(text)
+    .then(()=> toast("已複製到剪貼簿"))
+    .catch(()=> toast("複製失敗，請手動選取"));
+}
+
+// ---------- 4.6 花費 ----------
+function renderExpensesTab(){
+  const famName = id => families.find(f=>f.id===id)?.name || "?";
+
+  function groupBlock(title, list){
+    const total = list.reduce((s,x)=>s+(Number(x.amount)||0),0);
+    if(!list.length) return `<div class="cat-title">${title}</div><div class="empty" style="padding:12px 0">還沒有紀錄</div>`;
+    const rows = list.map(x=>`
+      <div class="list-row">
+        <div class="info">
+          <div class="n">${esc(famName(x.familyId))} 付了 $${Number(x.amount)||0}</div>
+          <div class="d">${esc(x.label||"")}</div>
+        </div>
+        <button class="iconbtn delExp" data-id="${x.id}"><span class="msi">delete</span></button>
+      </div>`).join("");
+    return `<div class="cat-title">${title}（合計 $${total}）</div><div class="card" style="padding:4px 10px">${rows}</div>`;
+  }
+
+  root.innerHTML = `
+    <button class="btn block" id="addExpBtn" style="margin-bottom:14px">
+      <span class="msi" style="font-size:18px">add</span> 新增花費
+    </button>
+    ${groupBlock("食材設備", expenses.filter(x=>x.kind==="food"))}
+    ${groupBlock("房費", expenses.filter(x=>x.kind==="room"))}
+  `;
+  document.getElementById("addExpBtn").onclick = openExpenseModal;
+  root.querySelectorAll(".delExp").forEach(b=>{
+    b.onclick = async ()=>{ await deleteDoc(doc(db, `events/${currentEvent.id}/expenses/${b.dataset.id}`)); };
+  });
+}
+
+function openExpenseModal(){
+  const famOptions = families.map(f=>`<option value="${f.id}">${esc(f.name)}</option>`).join("");
+  root_showModal(`
+    <h3>新增花費</h3>
+    <div class="field"><label>付款家庭</label><select id="expFam">${famOptions}</select></div>
+    <div class="field"><label>金額</label><input id="expAmount" type="number" min="0" placeholder="0" /></div>
+    <div class="field"><label>說明</label><input id="expLabel" placeholder="例：木炭、肉品" /></div>
+    <div class="field"><label>類型</label>
+      <select id="expKind"><option value="food">食材設備</option><option value="room">房費</option></select>
+    </div>
+    <button class="btn block" id="saveExp">新增</button>
+  `);
+  document.getElementById("saveExp").onclick = async ()=>{
+    const familyId = document.getElementById("expFam").value;
+    const amount = Number(document.getElementById("expAmount").value);
+    if(!familyId){ toast("請選付款家庭"); return; }
+    if(!amount || amount<=0){ toast("請輸入金額"); return; }
+    await addDoc(collection(db, `events/${currentEvent.id}/expenses`), {
+      familyId, amount,
+      label: document.getElementById("expLabel").value.trim(),
+      kind: document.getElementById("expKind").value,
+      itemId: null,
+      createdAt: serverTimestamp()
+    });
+    toast("已新增"); closeModal();
+  };
+}
+
+// ---------- 4.7 結算 ----------
+// 用最大餘數法把總額依權重整數分配，讓總和不會因四捨五入而兜不攏
+function allocateByWeight(total, weights){
+  const totalWeight = weights.reduce((a,b)=>a+b,0);
+  if(totalWeight <= 0) return weights.map(()=>0);
+  const raw = weights.map(w => total * w / totalWeight);
+  const floors = raw.map(Math.floor);
+  const remainder = total - floors.reduce((a,b)=>a+b,0);
+  const order = raw.map((v,i)=>({i, frac: v-Math.floor(v)})).sort((a,b)=>b.frac-a.frac);
+  const result = [...floors];
+  for(let k=0; k<remainder; k++){ result[order[k].i] += 1; }
+  return result;
+}
+
+function computeSettlement(){
+  const splitMode = currentEvent.splitMode || "perHead";
+  const kidFixedFee = Number(currentEvent.kidFixedFee) || 0;
+  const foodTotal = expenses.filter(x=>x.kind==="food").reduce((s,x)=>s+(Number(x.amount)||0),0);
+  const roomTotal = expenses.filter(x=>x.kind==="room").reduce((s,x)=>s+(Number(x.amount)||0),0);
+
+  const foodShare = {};
+  if(splitMode === "perFamily"){
+    const weights = families.map(()=>1);
+    const allocated = allocateByWeight(foodTotal, weights);
+    families.forEach((f,i)=>{ foodShare[f.id] = allocated[i]; });
+  } else if(splitMode === "perHeadKidFixed"){
+    const totalKids = families.reduce((s,f)=>s+(Number(f.kids)||0),0);
+    const remainForAdults = Math.max(0, foodTotal - totalKids*kidFixedFee);
+    const adultWeights = families.map(f=> Number(f.adults)||0);
+    const adultAllocated = allocateByWeight(remainForAdults, adultWeights);
+    families.forEach((f,i)=>{ foodShare[f.id] = (Number(f.kids)||0)*kidFixedFee + adultAllocated[i]; });
+  } else {
+    const weightFn = f => splitMode==="perHeadKidHalf" ? (Number(f.adults)||0) + (Number(f.kids)||0)*0.5
+                         : splitMode==="perHeadKidFree" ? (Number(f.adults)||0)
+                         : (Number(f.adults)||0) + (Number(f.kids)||0); // perHead
+    const weights = families.map(weightFn);
+    const allocated = allocateByWeight(foodTotal, weights);
+    families.forEach((f,i)=>{ foodShare[f.id] = allocated[i]; });
+  }
+
+  const result = families.map(f=>{
+    const foodPaid = expenses.filter(x=>x.kind==="food" && x.familyId===f.id).reduce((s,x)=>s+(Number(x.amount)||0),0);
+    const roomPaid = expenses.filter(x=>x.kind==="room" && x.familyId===f.id).reduce((s,x)=>s+(Number(x.amount)||0),0);
+    const foodOwed = foodShare[f.id] || 0;
+    const roomOwed = Number(f.roomFee) || 0;
+    return {
+      family: f, foodOwed, foodPaid, foodNet: foodPaid-foodOwed,
+      roomOwed, roomPaid, roomNet: roomPaid-roomOwed,
+      totalNet: (foodPaid-foodOwed) + (roomPaid-roomOwed)
+    };
+  });
+  return {result, foodTotal, roomTotal};
+}
+
+// 貪心配對最大應收／應付，湊出「A轉給B多少」的最少筆數方案
+function minimizeTransfers(balances){
+  const creditors = balances.filter(b=>b.amount>0.5).map(b=>({...b})).sort((a,b)=>b.amount-a.amount);
+  const debtors = balances.filter(b=>b.amount<-0.5).map(b=>({name:b.name, amount:-b.amount})).sort((a,b)=>b.amount-a.amount);
+  const transfers = [];
+  let i=0, j=0;
+  while(i<debtors.length && j<creditors.length){
+    const pay = Math.min(debtors[i].amount, creditors[j].amount);
+    if(pay > 0.5) transfers.push({from: debtors[i].name, to: creditors[j].name, amount: Math.round(pay)});
+    debtors[i].amount -= pay; creditors[j].amount -= pay;
+    if(debtors[i].amount < 0.5) i++;
+    if(creditors[j].amount < 0.5) j++;
+  }
+  return transfers;
+}
+
+function renderSettleTab(){
+  const {result, foodTotal, roomTotal} = computeSettlement();
+
+  function table(title, ownedKey, paidKey, netKey){
+    const rows = result.map(r=>`
+      <div class="list-row">
+        <div class="info"><div class="n">${esc(r.family.name)}</div>
+          <div class="d">應付 $${r[ownedKey]}・已付 $${r[paidKey]}</div>
+        </div>
+        <div style="font-weight:700;color:${r[netKey]>=0?"var(--ok)":"var(--danger)"}">${r[netKey]>=0?"+":""}${r[netKey]}</div>
+      </div>`).join("");
+    return `<div class="cat-title">${title}</div><div class="card" style="padding:4px 10px">${rows}</div>`;
+  }
+
+  const totalRows = result.map(r=>`
+    <div class="list-row">
+      <div class="info"><div class="n">${esc(r.family.name)}</div></div>
+      <div style="font-weight:700;color:${r.totalNet>=0?"var(--ok)":"var(--danger)"}">${r.totalNet>=0?"+":""}${r.totalNet}</div>
+    </div>`).join("");
+
+  const transfers = minimizeTransfers(result.map(r=>({name:r.family.name, amount:r.totalNet})));
+  const anyDebt = result.some(r=> r.totalNet < -0.5);
+  const anyCredit = result.some(r=> r.totalNet > 0.5);
+  const transferEmptyMsg = (anyDebt && !anyCredit)
+    ? "還沒有人代墊，暫時算不出轉帳對象"
+    : "已經打平，不用轉帳";
+  const transferHtml = transfers.length
+    ? transfers.map(t=>`<div class="list-row"><div class="info"><div class="n">${esc(t.from)} → ${esc(t.to)}</div></div><div style="font-weight:700">$${t.amount}</div></div>`).join("")
+    : `<div class="empty" style="padding:12px 0">${transferEmptyMsg}</div>`;
+
+  root.innerHTML = `
+    <div class="summary-bar"><span>食材設備共 $${foodTotal}</span><span>房費共 $${roomTotal}</span></div>
+    ${table("食材設備", "foodOwed", "foodPaid", "foodNet")}
+    ${table("房費", "roomOwed", "roomPaid", "roomNet")}
+    <div class="cat-title">合計（正＝要收，負＝要付）</div>
+    <div class="card" style="padding:4px 10px">${totalRows}</div>
+    <div class="cat-title">最少轉帳方案</div>
+    <div class="card" style="padding:4px 10px">${transferHtml}</div>
+    <button class="btn secondary block" id="copySettleBtn" style="margin-top:12px">
+      <span class="msi" style="font-size:18px">content_copy</span> 複製結算文字
+    </button>
+  `;
+  document.getElementById("copySettleBtn").onclick = ()=> copySettleAsText(result, transfers, foodTotal, roomTotal);
+}
+
+function copySettleAsText(result, transfers, foodTotal, roomTotal){
+  let text = `${currentEvent.year} ${currentEvent.venue?.name||""} 結算\n食材設備共 $${foodTotal}・房費共 $${roomTotal}\n\n`;
+  result.forEach(r=>{ text += `${r.family.name}：${r.totalNet>=0?"+":""}${r.totalNet}\n`; });
+  text += `\n轉帳方案：\n`;
+  text += transfers.length ? transfers.map(t=>`${t.from} → ${t.to}：$${t.amount}`).join("\n") : "已經打平，不用轉帳";
   navigator.clipboard.writeText(text)
     .then(()=> toast("已複製到剪貼簿"))
     .catch(()=> toast("複製失敗，請手動選取"));
