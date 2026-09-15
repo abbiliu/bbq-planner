@@ -46,10 +46,6 @@
   .event-row .meta{font-size:14px;color:var(--ink-dim)}
   .event-row .memo{font-size:14px;color:var(--ink);margin-top:2px;display:flex;align-items:center;gap:4px}
   .event-row .memo .msi{font-size:16px;color:var(--ink-dim)}
-  .feature-card{border:2px solid var(--accent);background:#fff8f3}
-  .feature-label{font-size:12px;color:var(--accent);font-weight:700;letter-spacing:.06em}
-  .feature-title{font-size:21px;font-weight:800;margin-top:4px}
-  .feature-meta{font-size:14px;color:var(--ink-dim);margin-top:2px}
   .event-row.cancelled{opacity:.5}
   .event-row.cancelled .name{text-decoration:line-through}
   .section-title{font-size:13px;color:var(--ink-dim);margin:18px 4px 6px;font-weight:600}
@@ -66,6 +62,15 @@
   nav.tabbar button .msi{font-size:21px}
   .modal-mask{position:fixed;inset:0;background:rgba(0,0,0,.4);display:flex;align-items:flex-end;
     justify-content:center;z-index:30}
+  .drawer-mask{position:fixed;inset:0;background:rgba(0,0,0,.4);z-index:35;
+    opacity:0;pointer-events:none;transition:opacity .22s}
+  .drawer-mask.show{opacity:1;pointer-events:auto}
+  .drawer{position:fixed;top:0;left:0;bottom:0;width:86%;max-width:340px;background:var(--card);
+    box-shadow:2px 0 24px rgba(0,0,0,.18);transform:translateX(-100%);transition:transform .25s;
+    overflow-y:auto;padding:16px calc(16px) calc(16px + var(--safe-b))}
+  .drawer-mask.show .drawer{transform:translateX(0)}
+  .drawer-head{display:flex;justify-content:space-between;align-items:center;margin-bottom:14px}
+  .drawer-head .title{font-weight:800;font-size:18px}
   .modal{background:var(--card);width:100%;max-width:640px;border-radius:16px 16px 0 0;
     padding:18px 16px calc(18px + var(--safe-b));max-height:85vh;overflow:auto}
   .modal h3{margin:0 0 12px;font-size:18px}
@@ -148,8 +153,6 @@
   .menu-card.wide{width:100%;flex-direction:row;align-items:center;gap:14px;margin-top:14px}
   .menu-card.wide .mc-body{flex:1}
   .menu-card.wide .mc-arrow{color:var(--ink-dim);font-size:22px}
-  .backlink{display:flex;align-items:center;gap:4px;border:none;background:none;color:var(--ink-dim);
-    font-size:14px;padding:6px 4px;margin-bottom:6px;cursor:pointer;font-family:inherit}
 </style>
 </head>
 <body>
@@ -170,6 +173,16 @@
 </nav>
 
 <div class="toast" id="toast"></div>
+
+<div class="drawer-mask" id="drawerMask" hidden>
+  <div class="drawer" id="drawer">
+    <div class="drawer-head">
+      <div class="title">歷年紀錄</div>
+      <button class="iconbtn" id="closeDrawer"><span class="msi">close</span></button>
+    </div>
+    <div id="drawerBody"></div>
+  </div>
+</div>
 
 <!-- Firebase (modular SDK via CDN, no build step) -->
 <script type="module">
@@ -315,6 +328,22 @@ async function ensureSeedData(){
 }
 
 // ---------- 首頁／活動列表 ----------
+// 單一場次的列表列 HTML，歷年列表頁（罕見情況）跟側邊欄的歷年選單共用
+function eventRowHtml(e){
+  const seqLabel = e.cancelled ? "停辦" : (e.seq ? `第 ${e.seq} 屆` : "");
+  const metaParts = [e.region, e.venue?.name].filter(Boolean);
+  return `<div class="event-row ${e.cancelled?"cancelled":""}" data-id="${e.id}">
+    <div class="top">
+      <span class="name">${e.year} ${e.venue?.name ? "・"+e.venue.name : ""}</span>
+      <span class="seq pill">${seqLabel}</span>
+    </div>
+    <div class="meta">${metaParts.join("　")}${e.host ? "　主辦："+e.host : ""}</div>
+    ${e.memo ? `<div class="memo"><span class="msi" style="font-size:15px">chat_bubble</span> ${e.memo}</div>` : ""}
+  </div>`;
+}
+
+// 只在「完全沒有活動」或「沒有進行中的活動」這種少見情況才會出現的畫面
+// （平常打開網站會直接自動進今年活動，看不到這頁）
 function renderEventList(events){
   if(events.length === 0){
     root.innerHTML = `<div class="empty">還沒有任何活動<br/><br/>
@@ -327,56 +356,15 @@ function renderEventList(events){
   }
 
   const sorted = [...events].sort((a,b)=> (b.year||0) - (a.year||0));
-  const featured = sorted.find(e=> e.status==="planning" && !e.cancelled) || null;
-  const doneCount = sorted.filter(e=>!e.cancelled && e.seq).length;
-
-  const rows = sorted.map(e=>{
-    const seqLabel = e.cancelled ? "停辦" : (e.seq ? `第 ${e.seq} 屆` : "");
-    const metaParts = [e.region, e.venue?.name].filter(Boolean);
-    return `<div class="event-row ${e.cancelled?"cancelled":""}" data-id="${e.id}">
-      <div class="top">
-        <span class="name">${e.year} ${e.venue?.name ? "・"+e.venue.name : ""}</span>
-        <span class="seq pill">${seqLabel}</span>
-      </div>
-      <div class="meta">${metaParts.join("　")}${e.host ? "　主辦："+e.host : ""}</div>
-      ${e.memo ? `<div class="memo"><span class="msi" style="font-size:15px">chat_bubble</span> ${e.memo}</div>` : ""}
-    </div>`;
-  }).join("");
+  const rows = sorted.map(eventRowHtml).join("");
 
   root.innerHTML = `
-    ${featured ? `
-    <div class="card feature-card" id="featureCard" style="cursor:pointer">
-      <div class="feature-label">即將到來</div>
-      <div class="feature-title">${featured.year}　${esc(featured.venue?.name||"")}</div>
-      <div class="feature-meta">${featured.checkIn ? esc(featured.checkIn)+(featured.checkOut?" ～ "+esc(featured.checkOut):"") : "日期未定"}${featured.region ? "　"+esc(featured.region) : ""}</div>
-      <button class="btn block" id="goFeature" style="margin-top:10px">前往準備 <span class="msi" style="font-size:18px">arrow_forward</span></button>
-    </div>` : `<div class="empty">還沒有進行中的活動</div>`}
-
-    <button class="btn secondary block" id="toggleHistory" style="margin-top:4px">
-      <span class="msi" style="font-size:18px">history</span> 查看歷年紀錄（${doneCount} 屆）
-    </button>
-    <div id="historySection" hidden>
-      <div class="card" style="margin-top:10px">
-        <div style="font-weight:700;margin-bottom:4px">歷年紀錄</div>
-        <div class="stat-grid">
-          <div class="stat"><div class="num">${doneCount}</div><div class="lbl">屆數</div></div>
-          <div class="stat"><div class="num">${new Set(sorted.map(e=>e.region).filter(Boolean)).size}</div><div class="lbl">去過地區</div></div>
-          <div class="stat"><div class="num">${new Set(sorted.map(e=>e.host).filter(Boolean)).size}</div><div class="lbl">主辦人數</div></div>
-        </div>
-      </div>
-      <div class="card" style="padding:4px 10px">${rows}</div>
-      <button class="btn block" id="btnNewEvent"><span class="msi" style="font-size:18px">add</span> 新增活動</button>
-    </div>
+    <div class="empty">目前沒有進行中的活動</div>
+    <div class="card" style="padding:4px 10px">${rows}</div>
+    <button class="btn block" id="btnNewEvent"><span class="msi" style="font-size:18px">add</span> 新增活動</button>
   `;
-
-  if(featured){
-    document.getElementById("featureCard").addEventListener("click", ()=> openEventDetail(featured.id));
-  }
-  const historySection = document.getElementById("historySection");
-  document.getElementById("toggleHistory").onclick = ()=>{ historySection.hidden = !historySection.hidden; };
-
   root.querySelectorAll(".event-row").forEach(row=>{
-    row.addEventListener("click", (ev)=>{ ev.stopPropagation(); openEventDetail(row.dataset.id); });
+    row.addEventListener("click", ()=> openEventDetail(row.dataset.id));
   });
   document.getElementById("btnNewEvent").onclick = ()=> toast("新增活動功能下一階段實作");
 }
@@ -420,6 +408,7 @@ function enterEvent(e){
   backBtn.hidden = false;
   topTitle.textContent = `${e.year} ${e.venue?.name || ""}`;
   highlightTab();
+  updateBackBtn();
   clearUnsubs();
   unsubs.push(onSnapshot(collection(db, `events/${e.id}/families`), snap=>{
     families = snap.docs.map(d=>({id:d.id, ...d.data()}));
@@ -440,36 +429,70 @@ function enterEvent(e){
   renderActiveTab();
 }
 
-function exitEvent(){
-  clearUnsubs();
-  currentEvent = null;
-  document.body.classList.remove("in-event");
-  tabbar.hidden = true;
-  backBtn.hidden = true;
-  topTitle.textContent = "年度烤肉聚會";
-  renderEventList(allEvents);
+// 統一的切分頁方式：換分頁、更新分頁列 active 狀態、更新左上角圖示，一起做
+function goTab(tab){
+  currentTab = tab;
+  highlightTab();
+  updateBackBtn();
+  renderActiveTab();
 }
-// 返回鍵是一層一層退：子頁面（認領/我的清單/花費/結算/參與人員）先退回活動儀表板，
-// 儀表板再退才會離開這個活動、回到歷年列表
-backBtn.onclick = ()=>{
-  if(currentTab !== "overview"){
-    currentTab = "overview";
-    highlightTab();
-    renderActiveTab();
+
+// 左上角圖示是動態的：在活動儀表板時是「選單」（開側邊欄看歷年紀錄），
+// 在其他子頁面時是「返回」（退回儀表板）——活動不再有「離開」這件事，
+// 歷年紀錄收進側邊欄選單，不當作最上層頁面
+function updateBackBtn(){
+  if(currentTab === "overview"){
+    backBtn.innerHTML = '<span class="msi">menu</span>';
+    backBtn.onclick = openDrawer;
   } else {
-    exitEvent();
+    backBtn.innerHTML = '<span class="msi">arrow_back</span>';
+    backBtn.onclick = ()=> goTab("overview");
   }
-};
+}
 
 tabbar.querySelectorAll("button").forEach(btn=>{
-  btn.addEventListener("click", ()=>{
-    currentTab = btn.dataset.tab;
-    highlightTab();
-    renderActiveTab();
-  });
+  btn.addEventListener("click", ()=> goTab(btn.dataset.tab));
 });
 function highlightTab(){
   tabbar.querySelectorAll("button").forEach(b=> b.classList.toggle("active", b.dataset.tab===currentTab));
+}
+
+// ---------- 側邊欄：歷年紀錄選單 ----------
+const drawerMask = document.getElementById("drawerMask");
+const drawerBody = document.getElementById("drawerBody");
+document.getElementById("closeDrawer").onclick = closeDrawer;
+drawerMask.addEventListener("click", (ev)=>{ if(ev.target===drawerMask) closeDrawer(); });
+function openDrawer(){
+  renderDrawerHistory();
+  drawerMask.hidden = false;
+  requestAnimationFrame(()=> drawerMask.classList.add("show"));
+}
+function closeDrawer(){
+  drawerMask.classList.remove("show");
+  setTimeout(()=>{ drawerMask.hidden = true; }, 220);
+}
+function renderDrawerHistory(){
+  const sorted = [...allEvents].sort((a,b)=> (b.year||0) - (a.year||0));
+  const doneCount = sorted.filter(e=>!e.cancelled && e.seq).length;
+  const rows = sorted.map(eventRowHtml).join("");
+  drawerBody.innerHTML = `
+    <div class="stat-grid">
+      <div class="stat"><div class="num">${doneCount}</div><div class="lbl">屆數</div></div>
+      <div class="stat"><div class="num">${new Set(sorted.map(e=>e.region).filter(Boolean)).size}</div><div class="lbl">去過地區</div></div>
+      <div class="stat"><div class="num">${new Set(sorted.map(e=>e.host).filter(Boolean)).size}</div><div class="lbl">主辦人數</div></div>
+    </div>
+    <div style="margin-top:14px">${rows}</div>
+    <button class="btn block" id="btnNewEvent" style="margin-top:12px">
+      <span class="msi" style="font-size:18px">add</span> 新增活動
+    </button>
+  `;
+  drawerBody.querySelectorAll(".event-row").forEach(row=>{
+    row.addEventListener("click", ()=>{
+      closeDrawer();
+      openEventDetail(row.dataset.id);
+    });
+  });
+  document.getElementById("btnNewEvent").onclick = ()=> toast("新增活動功能下一階段實作");
 }
 function renderActiveTab(){
   if(!currentEvent) return;
@@ -534,20 +557,11 @@ function renderDashboard(){
         <div class="mc-sub">${mine ? "已認領 "+myClaimCount+" 項" : "尚未設定身分"}</div>
       </button>
     </div>
-
-    <button class="btn secondary block" id="toHistoryBtn" style="margin-top:18px">
-      <span class="msi" style="font-size:18px">history</span> 查看歷年紀錄
-    </button>
   `;
   document.getElementById("editEvInfo").onclick = openEventInfoModal;
   root.querySelectorAll(".menu-card").forEach(b=>{
-    b.addEventListener("click", ()=>{ currentTab = b.dataset.go; highlightTab(); renderActiveTab(); });
+    b.addEventListener("click", ()=> goTab(b.dataset.go));
   });
-  document.getElementById("toHistoryBtn").onclick = ()=>{
-    exitEvent();
-    const hs = document.getElementById("historySection");
-    if(hs) hs.hidden = false;
-  };
 }
 
 // ---------- 4.3 參與人員（家庭名單） ----------
@@ -565,7 +579,6 @@ function renderFamiliesTab(){
     </div>`).join("") || `<div class="empty" style="padding:20px 0">還沒有家庭，先新增一個</div>`;
 
   root.innerHTML = `
-    <button class="backlink" id="toDashboard"><span class="msi" style="font-size:18px">arrow_back</span> 返回</button>
     <div class="card">
       <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px">
         <div style="font-weight:700">家庭名單</div>
@@ -574,7 +587,6 @@ function renderFamiliesTab(){
       ${famRows}
     </div>
   `;
-  document.getElementById("toDashboard").onclick = ()=>{ currentTab="overview"; highlightTab(); renderActiveTab(); };
   document.getElementById("addFam").onclick = ()=> openFamilyModal(null);
   root.querySelectorAll(".editFam").forEach(b=> b.onclick = ()=> openFamilyModal(families.find(f=>f.id===b.dataset.id)));
   root.querySelectorAll(".delFam").forEach(b=> b.onclick = ()=> deleteFamily(b.dataset.id));
@@ -908,7 +920,7 @@ function boot(){
     allEvents = snap.docs.map(d=>({id:d.id, ...d.data()}));
     if(!currentEvent){
       // 打開網站直接進今年的活動，省掉「先點一次才開始」這步；
-      // 只在第一次載入時自動導向，使用者手動按返回鍵回列表後就不會再被導回去
+      // 只在第一次載入時自動導向一次就好
       if(!autoEntered){
         autoEntered = true;
         const featured = [...allEvents].sort((a,b)=>(b.year||0)-(a.year||0)).find(e=>e.status==="planning" && !e.cancelled);
