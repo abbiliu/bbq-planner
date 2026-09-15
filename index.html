@@ -51,6 +51,9 @@
   nav.tabbar{position:fixed;left:0;right:0;bottom:0;height:calc(var(--tab-h) + var(--safe-b));
     padding-bottom:var(--safe-b);background:var(--card);border-top:1px solid var(--line);
     display:flex;z-index:20}
+  nav.tabbar[hidden]{display:none}
+  body.in-event{padding-bottom:calc(var(--tab-h) + var(--safe-b) + 12px)}
+  body:not(.in-event) .tabbar{display:none}
   nav.tabbar button{flex:1;border:none;background:none;display:flex;flex-direction:column;
     align-items:center;justify-content:center;gap:2px;font-size:11px;color:var(--ink-dim);
     cursor:pointer;font-family:inherit}
@@ -77,11 +80,46 @@
   .stat-grid .stat .num{font-size:18px;font-weight:700}
   .stat-grid .stat .lbl{font-size:11px;color:var(--ink-dim)}
   #root:empty::after{content:'載入中…';display:block;text-align:center;padding:60px 0;color:var(--ink-dim)}
+
+  .backbtn{border:none;background:none;color:var(--ink);display:flex;align-items:center;
+    cursor:pointer;padding:2px;margin-right:2px;flex:0 0 auto}
+  .backbtn[hidden]{display:none}
+  .list-row{display:flex;justify-content:space-between;align-items:center;gap:8px;
+    padding:12px 4px;border-bottom:1px solid var(--line)}
+  .list-row:last-child{border-bottom:none}
+  .list-row .info{display:flex;flex-direction:column;gap:2px;min-width:0}
+  .list-row .info .n{font-weight:700;font-size:14px}
+  .list-row .info .d{font-size:12px;color:var(--ink-dim)}
+  .iconbtn{border:none;background:none;color:var(--ink-dim);cursor:pointer;padding:6px;
+    display:flex;align-items:center;border-radius:8px;flex:0 0 auto}
+  .iconbtn:active{background:#f1ece3}
+  .chips{display:flex;gap:6px;overflow-x:auto;margin-bottom:10px;padding-bottom:2px}
+  .chip{flex:0 0 auto;font-size:12px;padding:6px 12px;border-radius:999px;border:1px solid var(--line);
+    background:#fff;color:var(--ink-dim);cursor:pointer;white-space:nowrap}
+  .chip.active{background:var(--accent);border-color:var(--accent);color:#fff;font-weight:600}
+  .cat-title{font-size:13px;font-weight:700;color:var(--ink);margin:16px 4px 6px}
+  .item-card{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:12px;margin-bottom:8px}
+  .item-card .top{display:flex;justify-content:space-between;align-items:flex-start;gap:8px}
+  .item-card .name{font-weight:600;font-size:14px}
+  .item-card .qty{font-size:12px;color:var(--ink-dim);white-space:nowrap}
+  .item-card .claimants{font-size:12px;color:var(--ink-dim);margin-top:6px;display:flex;flex-wrap:wrap;gap:6px}
+  .item-card .claimants .tag{background:#f1ece3;border-radius:999px;padding:2px 8px}
+  .item-card .claimants .tag.mine{background:#fbe3d3;color:var(--accent)}
+  .item-card .actions{margin-top:8px;display:flex;gap:8px}
+  .status-dot{display:inline-block;width:8px;height:8px;border-radius:50%;margin-right:6px}
+  .status-dot.full{background:var(--ok)}
+  .status-dot.partial{background:var(--warn)}
+  .status-dot.none{background:var(--danger)}
+  .summary-bar{display:flex;justify-content:space-between;font-size:12px;color:var(--ink-dim);
+    margin-bottom:10px;padding:0 4px}
+  .fam-picker label.opt{display:flex;align-items:center;gap:8px;padding:10px 4px;border-bottom:1px solid var(--line);font-size:14px}
+  .fam-picker label.opt:last-child{border-bottom:none}
 </style>
 </head>
 <body>
 <header class="topbar">
-  <div class="title" id="topTitle">年度烤肉聚會</div>
+  <button class="backbtn" id="backBtn" hidden><span class="msi">arrow_back</span></button>
+  <div class="title" id="topTitle" style="flex:1">年度烤肉聚會</div>
   <div class="me" id="meBadge">設定身分</div>
 </header>
 
@@ -178,10 +216,10 @@ const BBQ_TEMPLATE = {
   ]
 };
 
-// ---------- 身分（localStorage） ----------
-const ME_KEY = "bbq_my_family_id";
-function getMyFamilyId(){ return localStorage.getItem(ME_KEY) || ""; }
-function setMyFamilyId(id){ localStorage.setItem(ME_KEY, id); }
+// ---------- 身分（localStorage，存的是家庭名稱，跨年份用名稱比對） ----------
+const ME_KEY = "bbq_my_family_name";
+function getMyFamilyName(){ return localStorage.getItem(ME_KEY) || ""; }
+function setMyFamilyName(name){ localStorage.setItem(ME_KEY, name); }
 
 // ---------- 小工具 ----------
 function toast(msg){
@@ -189,11 +227,14 @@ function toast(msg){
   el.textContent = msg; el.classList.add("show");
   clearTimeout(toast._t); toast._t = setTimeout(()=>el.classList.remove("show"), 2200);
 }
-function h(strings, ...vals){ return strings.reduce((a,s,i)=>a+s+(vals[i]??""),""); }
+function esc(s){
+  return String(s ?? "").replace(/[&<>"']/g, c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+}
 const root = document.getElementById("root");
 const tabbar = document.getElementById("tabbar");
 const meBadge = document.getElementById("meBadge");
 const topTitle = document.getElementById("topTitle");
+const backBtn = document.getElementById("backBtn");
 
 // ---------- 一次性資料初始化：歷年資料 + 2026 模板 ----------
 async function ensureSeedData(){
@@ -279,14 +320,16 @@ function renderEventList(events){
   `;
 
   root.querySelectorAll(".event-row").forEach(row=>{
-    row.addEventListener("click", ()=> openEventDetail(row.dataset.id, events));
+    row.addEventListener("click", ()=> openEventDetail(row.dataset.id));
   });
   document.getElementById("btnNewEvent").onclick = ()=> toast("新增活動功能下一階段實作");
 }
 
-function openEventDetail(id, events){
-  const e = events.find(x=>x.id===id);
+// 2026 起才有完整清單／認領／費用；更早的年份只開記憶點小卡
+function openEventDetail(id){
+  const e = allEvents.find(x=>x.id===id);
   if(!e) return;
+  if(e.year >= 2026){ enterEvent(e); return; }
   root_showModal(`
     <h3>${e.year}　${e.venue?.name||""}</h3>
     <div class="field"><label>場次</label>${e.seq ? "第"+e.seq+"屆" : (e.cancelled?"停辦":"—")}</div>
@@ -302,6 +345,301 @@ function openEventDetail(id, events){
   };
 }
 
+// ==================== 活動工作區（4.2起，含分頁） ====================
+let currentEvent = null;
+let currentTab = "overview";
+let families = [], categories = [], items = [], claims = [];
+let claimFilter = "all";
+let unsubs = [];
+
+function clearUnsubs(){ unsubs.forEach(u=>u()); unsubs = []; }
+
+function enterEvent(e){
+  currentEvent = e;
+  currentTab = "overview";
+  claimFilter = "all";
+  document.body.classList.add("in-event");
+  tabbar.hidden = false;
+  backBtn.hidden = false;
+  topTitle.textContent = `${e.year} ${e.venue?.name || ""}`;
+  highlightTab();
+  clearUnsubs();
+  unsubs.push(onSnapshot(collection(db, `events/${e.id}/families`), snap=>{
+    families = snap.docs.map(d=>({id:d.id, ...d.data()}));
+    if(currentTab==="overview" || currentTab==="claims") renderActiveTab();
+  }));
+  unsubs.push(onSnapshot(query(collection(db, `events/${e.id}/categories`), orderBy("order")), snap=>{
+    categories = snap.docs.map(d=>({id:d.id, ...d.data()}));
+    if(currentTab==="claims") renderActiveTab();
+  }));
+  unsubs.push(onSnapshot(query(collection(db, `events/${e.id}/items`), orderBy("order")), snap=>{
+    items = snap.docs.map(d=>({id:d.id, ...d.data()}));
+    if(currentTab==="claims") renderActiveTab();
+  }));
+  unsubs.push(onSnapshot(collection(db, `events/${e.id}/claims`), snap=>{
+    claims = snap.docs.map(d=>({id:d.id, ...d.data()}));
+    if(currentTab==="claims") renderActiveTab();
+  }));
+  renderActiveTab();
+}
+
+function exitEvent(){
+  clearUnsubs();
+  currentEvent = null;
+  document.body.classList.remove("in-event");
+  tabbar.hidden = true;
+  backBtn.hidden = true;
+  topTitle.textContent = "年度烤肉聚會";
+  renderEventList(allEvents);
+}
+backBtn.onclick = exitEvent;
+
+tabbar.querySelectorAll("button").forEach(btn=>{
+  btn.addEventListener("click", ()=>{
+    currentTab = btn.dataset.tab;
+    highlightTab();
+    renderActiveTab();
+  });
+});
+function highlightTab(){
+  tabbar.querySelectorAll("button").forEach(b=> b.classList.toggle("active", b.dataset.tab===currentTab));
+}
+function renderActiveTab(){
+  if(!currentEvent) return;
+  if(currentTab==="overview") renderOverviewTab();
+  else if(currentTab==="claims") renderClaimsTab();
+  else root.innerHTML = `<div class="empty">這個分頁下一階段實作</div>`;
+}
+
+// ---------- 4.2＋4.3 總覽（活動資訊 + 家庭名單） ----------
+function renderOverviewTab(){
+  const e = currentEvent;
+  const totals = families.reduce((a,f)=>{
+    a.adults += Number(f.adults)||0; a.kids += Number(f.kids)||0; a.pets += Number(f.pets)||0; return a;
+  }, {adults:0, kids:0, pets:0});
+
+  const famRows = families.map(f=>`
+    <div class="list-row">
+      <div class="info">
+        <div class="n">${esc(f.name)}</div>
+        <div class="d">大人${f.adults||0}・小孩${f.kids||0}${f.pets?"・寵物"+f.pets:""}${f.roomType?"・"+esc(f.roomType):""}${f.roomFee?"・房費"+f.roomFee:""}</div>
+      </div>
+      <div style="display:flex">
+        <button class="iconbtn editFam" data-id="${f.id}"><span class="msi">edit</span></button>
+        <button class="iconbtn delFam" data-id="${f.id}"><span class="msi">delete</span></button>
+      </div>
+    </div>`).join("") || `<div class="empty" style="padding:20px 0">還沒有家庭，先新增一個</div>`;
+
+  root.innerHTML = `
+    <div class="card">
+      <div style="font-weight:700;margin-bottom:6px">活動資訊</div>
+      <div style="font-size:13px;color:var(--ink-dim);line-height:2">
+        <span class="msi" style="font-size:16px">location_on</span> ${esc(e.venue?.name || "—")}<br/>
+        <span class="msi" style="font-size:16px">calendar_month</span> ${e.checkIn ? esc(e.checkIn) : "日期未定"}${e.checkOut ? " ～ "+esc(e.checkOut) : ""}
+      </div>
+      <div class="stat-grid">
+        <div class="stat"><div class="num">${families.length}</div><div class="lbl">家庭</div></div>
+        <div class="stat"><div class="num">${totals.adults}</div><div class="lbl">大人</div></div>
+        <div class="stat"><div class="num">${totals.kids}</div><div class="lbl">小孩</div></div>
+      </div>
+    </div>
+    <div class="card">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px">
+        <div style="font-weight:700">家庭名單</div>
+        <button class="iconbtn" id="addFam"><span class="msi">person_add</span></button>
+      </div>
+      ${famRows}
+    </div>
+  `;
+  document.getElementById("addFam").onclick = ()=> openFamilyModal(null);
+  root.querySelectorAll(".editFam").forEach(b=> b.onclick = ()=> openFamilyModal(families.find(f=>f.id===b.dataset.id)));
+  root.querySelectorAll(".delFam").forEach(b=> b.onclick = ()=> deleteFamily(b.dataset.id));
+}
+
+function openFamilyModal(fam){
+  const isNew = !fam;
+  root_showModal(`
+    <h3>${isNew ? "新增家庭" : "編輯家庭"}</h3>
+    <div class="field"><label>家庭名稱</label><input id="fName" value="${esc(fam?.name||"")}" placeholder="例：阿彬家" /></div>
+    <div class="row">
+      <div class="field"><label>大人</label><input id="fAdults" type="number" min="0" value="${fam?.adults??0}" /></div>
+      <div class="field"><label>小孩</label><input id="fKids" type="number" min="0" value="${fam?.kids??0}" /></div>
+      <div class="field"><label>寵物</label><input id="fPets" type="number" min="0" value="${fam?.pets??0}" /></div>
+    </div>
+    <div class="row">
+      <div class="field"><label>房型</label><input id="fRoomType" value="${esc(fam?.roomType||"")}" /></div>
+      <div class="field"><label>房費</label><input id="fRoomFee" type="number" min="0" value="${fam?.roomFee??""}" /></div>
+    </div>
+    <div class="field"><label>備註</label><input id="fNote" value="${esc(fam?.note||"")}" /></div>
+    <button class="btn block" id="saveFam">${isNew ? "新增" : "儲存"}</button>
+  `);
+  document.getElementById("saveFam").onclick = async ()=>{
+    const name = document.getElementById("fName").value.trim();
+    if(!name){ toast("請填家庭名稱"); return; }
+    const data = {
+      name,
+      adults: Number(document.getElementById("fAdults").value)||0,
+      kids: Number(document.getElementById("fKids").value)||0,
+      pets: Number(document.getElementById("fPets").value)||0,
+      roomType: document.getElementById("fRoomType").value.trim(),
+      roomFee: Number(document.getElementById("fRoomFee").value)||0,
+      note: document.getElementById("fNote").value.trim(),
+    };
+    if(isNew) await addDoc(collection(db, `events/${currentEvent.id}/families`), data);
+    else await updateDoc(doc(db, `events/${currentEvent.id}/families/${fam.id}`), data);
+    toast("已儲存"); closeModal();
+  };
+}
+async function deleteFamily(id){
+  if(!confirm("確定要刪除這個家庭嗎？（連同他的認領一起會留著，不會自動清除）")) return;
+  await deleteDoc(doc(db, `events/${currentEvent.id}/families/${id}`));
+}
+
+// ---------- 身分比對／選擇 ----------
+function myFamilyInEvent(){
+  const name = getMyFamilyName();
+  return families.find(f=>f.name===name) || null;
+}
+function ensureIdentityThen(cb){
+  const mine = myFamilyInEvent();
+  if(mine){ cb(mine); return; }
+  openIdentityPicker(()=>{
+    const mine2 = myFamilyInEvent();
+    if(mine2) cb(mine2);
+    else toast("這個名稱還不在家庭名單裡，先去總覽新增這個家庭");
+  });
+}
+function openIdentityPicker(onDone){
+  const opts = families.map(f=>`<label class="opt"><input type="radio" name="famPick" value="${esc(f.name)}"/> ${esc(f.name)}</label>`).join("");
+  root_showModal(`
+    <h3>你是哪一家？</h3>
+    <div class="fam-picker">${opts || `<div class="empty">這個活動還沒有家庭名單，先到總覽新增</div>`}</div>
+    <div class="field" style="margin-top:12px"><label>或輸入名稱（若不在名單中）</label><input id="newFamName" placeholder="例：阿彬家"/></div>
+    <button class="btn block" id="confirmIdentity">確定</button>
+  `);
+  document.getElementById("confirmIdentity").onclick = ()=>{
+    const checked = document.querySelector('input[name="famPick"]:checked');
+    const typed = document.getElementById("newFamName").value.trim();
+    const name = typed || (checked && checked.value);
+    if(!name){ toast("請選一個或輸入名稱"); return; }
+    setMyFamilyName(name);
+    updateMeBadge();
+    closeModal();
+    onDone && onDone();
+  };
+}
+function updateMeBadge(){
+  const name = getMyFamilyName();
+  meBadge.textContent = name ? "身分："+name : "設定身分";
+}
+meBadge.onclick = ()=>{
+  if(currentEvent){
+    openIdentityPicker(()=> renderActiveTab());
+  } else {
+    const name = prompt("輸入你的家庭名稱：", getMyFamilyName());
+    if(name){ setMyFamilyName(name); updateMeBadge(); }
+  }
+};
+
+// ---------- 4.4 清單認領 ----------
+function renderClaimsTab(){
+  const mine = myFamilyInEvent();
+  const famName = id => families.find(f=>f.id===id)?.name || "?";
+
+  const withClaims = items.map(it=>{
+    const itClaims = claims.filter(c=>c.itemId===it.id);
+    const claimedQty = itClaims.reduce((s,c)=>s+(Number(c.qty)||0),0);
+    return {...it, itClaims, claimedQty, remaining: Math.max(0,(it.qtyNeeded||0)-claimedQty)};
+  });
+
+  const filtered = withClaims.filter(it=>{
+    if(claimFilter==="need") return it.remaining>0;
+    if(claimFilter==="mine") return mine && it.itClaims.some(c=>c.familyId===mine.id);
+    return true;
+  });
+
+  const fullCount = withClaims.filter(it=>it.remaining<=0 && it.claimedQty>0).length;
+  const needCount = withClaims.filter(it=>it.remaining>0).length;
+
+  const byCat = {};
+  filtered.forEach(it=>{ (byCat[it.categoryId] ??= []).push(it); });
+
+  const catBlocks = categories
+    .filter(c=> byCat[c.id]?.length)
+    .map(c=>{
+      const rows = byCat[c.id].map(it=>{
+        const statusClass = it.claimedQty<=0 ? "none" : (it.remaining>0 ? "partial" : "full");
+        const mineHasClaim = mine && it.itClaims.some(c2=>c2.familyId===mine.id);
+        const tags = it.itClaims.map(c2=>
+          `<span class="tag ${mine && c2.familyId===mine.id ? "mine" : ""}">${esc(famName(c2.familyId))} ×${c2.qty}</span>`
+        ).join("");
+        return `<div class="item-card">
+          <div class="top">
+            <div class="name"><span class="status-dot ${statusClass}"></span>${esc(it.name)}${it.note?`<div style="font-weight:400;font-size:11px;color:var(--ink-dim)">${esc(it.note)}</div>`:""}</div>
+            <div class="qty">${it.claimedQty}/${it.qtyNeeded} ${esc(it.unit||"")}</div>
+          </div>
+          ${tags ? `<div class="claimants">${tags}</div>` : ""}
+          <div class="actions">
+            <button class="btn secondary claimBtn" data-id="${it.id}" style="flex:1">${mineHasClaim ? "修改我的認領" : "我認領"}</button>
+          </div>
+        </div>`;
+      }).join("");
+      return `<div class="cat-title">${esc(c.name)}</div>${rows}`;
+    }).join("") || `<div class="empty">沒有符合條件的項目</div>`;
+
+  root.innerHTML = `
+    <div class="summary-bar"><span>共 ${items.length} 項</span><span>已滿足 ${fullCount} 項</span><span>還缺 ${needCount} 項</span></div>
+    <div class="chips">
+      <button class="chip ${claimFilter==='all'?'active':''}" data-f="all">全部</button>
+      <button class="chip ${claimFilter==='need'?'active':''}" data-f="need">還缺的</button>
+      <button class="chip ${claimFilter==='mine'?'active':''}" data-f="mine">我認領的</button>
+    </div>
+    ${catBlocks}
+  `;
+  root.querySelectorAll(".chip").forEach(b=> b.onclick = ()=>{ claimFilter = b.dataset.f; renderClaimsTab(); });
+  root.querySelectorAll(".claimBtn").forEach(b=>{
+    b.onclick = ()=> ensureIdentityThen(fam=> openClaimModal(items.find(i=>i.id===b.dataset.id), fam));
+  });
+}
+
+function openClaimModal(item, fam){
+  const itClaims = claims.filter(c=>c.itemId===item.id);
+  const claimedQty = itClaims.reduce((s,c)=>s+(Number(c.qty)||0),0);
+  const mineClaim = itClaims.find(c=>c.familyId===fam.id);
+  const othersQty = claimedQty - (mineClaim ? Number(mineClaim.qty)||0 : 0);
+  const remaining = Math.max(0, (item.qtyNeeded||0) - othersQty);
+  const defaultQty = mineClaim ? mineClaim.qty : (remaining>0 ? remaining : 1);
+
+  root_showModal(`
+    <h3>${esc(item.name)}</h3>
+    <div style="font-size:13px;color:var(--ink-dim);margin-bottom:10px">需要 ${item.qtyNeeded} ${esc(item.unit||"")}，目前已認領 ${claimedQty}</div>
+    <div class="field"><label>我認領（${esc(item.unit||"")}）</label><input id="claimQty" type="number" min="0" value="${defaultQty}" /></div>
+    <div class="row">
+      <button class="btn block" id="saveClaim">${mineClaim ? "更新" : "確定認領"}</button>
+      ${mineClaim ? `<button class="btn secondary block" id="cancelClaim">取消認領</button>` : ""}
+    </div>
+  `);
+  document.getElementById("saveClaim").onclick = async ()=>{
+    const qty = Number(document.getElementById("claimQty").value);
+    if(!qty || qty<=0){ toast("請輸入數量"); return; }
+    if(othersQty + qty > item.qtyNeeded) toast("超過需求量了，還是先幫你記錄");
+    if(mineClaim){
+      await updateDoc(doc(db, `events/${currentEvent.id}/claims/${mineClaim.id}`), {qty});
+    } else {
+      await addDoc(collection(db, `events/${currentEvent.id}/claims`), {
+        itemId: item.id, familyId: fam.id, qty, done:false, createdAt: serverTimestamp()
+      });
+    }
+    toast("已認領"); closeModal();
+  };
+  if(mineClaim){
+    document.getElementById("cancelClaim").onclick = async ()=>{
+      await deleteDoc(doc(db, `events/${currentEvent.id}/claims/${mineClaim.id}`));
+      toast("已取消認領"); closeModal();
+    };
+  }
+}
+
 let modalMask;
 function root_showModal(innerHtml){
   closeModal();
@@ -314,17 +652,22 @@ function root_showModal(innerHtml){
 function closeModal(){ if(modalMask){ modalMask.remove(); modalMask=null; } }
 
 // ---------- 啟動 ----------
+let allEvents = [];
 function boot(){
-  const myId = getMyFamilyId();
-  meBadge.textContent = myId ? "身分："+myId : "設定身分";
-  meBadge.onclick = ()=>{
-    const id = prompt("輸入你的家庭代號（之後會改成從名單選）：", getMyFamilyId());
-    if(id){ setMyFamilyId(id); meBadge.textContent = "身分："+id; }
-  };
+  updateMeBadge();
 
   onSnapshot(query(collection(db,"events")), (snap)=>{
-    const events = snap.docs.map(d=>({id:d.id, ...d.data()}));
-    renderEventList(events);
+    allEvents = snap.docs.map(d=>({id:d.id, ...d.data()}));
+    if(!currentEvent){
+      renderEventList(allEvents);
+    } else {
+      const updated = allEvents.find(e=>e.id===currentEvent.id);
+      if(updated){
+        currentEvent = updated;
+        topTitle.textContent = `${updated.year} ${updated.venue?.name || ""}`;
+        if(currentTab==="overview") renderActiveTab();
+      }
+    }
   }, (err)=>{
     console.error(err);
     root.innerHTML = `<div class="empty">讀取失敗，可能是 Firestore 權限規則尚未開放。<br/>
