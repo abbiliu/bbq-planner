@@ -79,7 +79,7 @@
   .field input,.field select,.field textarea{width:100%;padding:10px 10px;border:1px solid var(--line);
     border-radius:8px;font-size:16px;font-family:inherit;background:#fff;color:var(--ink)}
   .row{display:flex;gap:8px}
-  .row > *{flex:1}
+  .row > *{flex:1;min-width:0}
   .pill{display:inline-block;font-size:12px;padding:3px 9px;border-radius:999px;background:#f1ece3;color:var(--ink-dim)}
   .toast{position:fixed;left:50%;bottom:calc(var(--tab-h) + var(--safe-b) + 16px);transform:translateX(-50%);
     background:#2b2420;color:#fff;padding:10px 16px;border-radius:999px;font-size:14px;z-index:40;
@@ -615,10 +615,8 @@ function openEventInfoModal(){
     <h3>編輯活動資訊</h3>
     <div class="field"><label>地點名稱</label><input id="evVenue" value="${esc(e.venue?.name||"")}" /></div>
     <div class="field"><label>地址</label><input id="evAddr" value="${esc(e.venue?.address||"")}" /></div>
-    <div class="row">
-      <div class="field"><label>入住日期</label><input id="evCheckIn" type="date" value="${esc(e.checkIn||"")}" /></div>
-      <div class="field"><label>退房日期</label><input id="evCheckOut" type="date" value="${esc(e.checkOut||"")}" /></div>
-    </div>
+    <div class="field"><label>入住日期</label><input id="evCheckIn" type="date" value="${esc(e.checkIn||"")}" /></div>
+    <div class="field"><label>退房日期</label><input id="evCheckOut" type="date" value="${esc(e.checkOut||"")}" /></div>
     <div class="field"><label>電話</label><input id="evPhone" value="${esc(e.venue?.phone||"")}" /></div>
     <div class="field"><label>備註（WiFi等）</label><input id="evNotes" value="${esc(e.venue?.notes||"")}" /></div>
     <div class="field"><label>食材設備分攤方式</label>
@@ -904,18 +902,29 @@ function openClaimModal(item, fam){
   const remaining = Math.max(0, (item.qtyNeeded||0) - othersQty);
   const defaultQty = mineClaim ? mineClaim.qty : (remaining>0 ? remaining : 1);
 
+  const state = { qty: defaultQty };
   root_showModal(`
     <h3>${esc(item.name)}</h3>
     <div style="font-size:13px;color:var(--ink-dim);margin-bottom:10px">需要 ${item.qtyNeeded} ${esc(item.unit||"")}，目前已認領 ${claimedQty}</div>
-    <div class="field"><label>我認領（${esc(item.unit||"")}）</label><input id="claimQty" type="number" min="0" value="${defaultQty}" /></div>
+    <div class="field"><label>我認領（${esc(item.unit||"")}）</label>
+      <div class="stepper" data-key="qty">
+        <button type="button" class="stepbtn minus">－</button>
+        <span class="stepval">${state.qty}</span>
+        <button type="button" class="stepbtn plus">＋</button>
+      </div>
+    </div>
     <div class="row">
       <button class="btn block" id="saveClaim">${mineClaim ? "更新" : "確定認領"}</button>
       ${mineClaim ? `<button class="btn secondary block" id="cancelClaim">取消認領</button>` : ""}
     </div>
   `);
+  const qtyStepper = modalMask.querySelector(".stepper");
+  const qtyValEl = qtyStepper.querySelector(".stepval");
+  qtyStepper.querySelector(".minus").onclick = ()=>{ state.qty = Math.max(0, state.qty-1); qtyValEl.textContent = state.qty; };
+  qtyStepper.querySelector(".plus").onclick = ()=>{ state.qty = Math.min(99, state.qty+1); qtyValEl.textContent = state.qty; };
   document.getElementById("saveClaim").onclick = async ()=>{
-    const qty = Number(document.getElementById("claimQty").value);
-    if(!qty || qty<=0){ toast("請輸入數量"); return; }
+    const qty = state.qty;
+    if(!qty || qty<=0){ toast("數量至少要 1"); return; }
     if(othersQty + qty > item.qtyNeeded) toast("超過需求量了，還是先幫你記錄");
     if(mineClaim){
       await updateDoc(doc(db, `events/${currentEvent.id}/claims/${mineClaim.id}`), {qty});
