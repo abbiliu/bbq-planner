@@ -412,7 +412,7 @@ function enterEvent(e){
   clearUnsubs();
   unsubs.push(onSnapshot(collection(db, `events/${e.id}/families`), snap=>{
     families = snap.docs.map(d=>({id:d.id, ...d.data()}));
-    if(currentTab==="overview" || currentTab==="families" || currentTab==="claims") renderActiveTab();
+    if(currentTab==="overview" || currentTab==="families" || currentTab==="claims" || currentTab==="mine") renderActiveTab();
   }));
   unsubs.push(onSnapshot(query(collection(db, `events/${e.id}/categories`), orderBy("order")), snap=>{
     categories = snap.docs.map(d=>({id:d.id, ...d.data()}));
@@ -499,6 +499,7 @@ function renderActiveTab(){
   if(currentTab==="overview") renderDashboard();
   else if(currentTab==="families") renderFamiliesTab();
   else if(currentTab==="claims") renderClaimsTab();
+  else if(currentTab==="mine") renderMineTab();
   else root.innerHTML = `<div class="empty">這個分頁下一階段實作</div>`;
 }
 
@@ -897,6 +898,82 @@ function openClaimModal(item, fam){
       toast("已取消認領"); closeModal();
     };
   }
+}
+
+// ---------- 4.5 我的準備清單 ----------
+let mineViewFamilyId = null; // 可以切換看別家的清單，不影響自己的身分設定
+
+function renderMineTab(){
+  const mine = myFamilyInEvent();
+  const viewId = mineViewFamilyId || mine?.id || "";
+  const viewFam = families.find(f=>f.id===viewId);
+  const famOptions = families.map(f=>
+    `<option value="${f.id}" ${f.id===viewId?"selected":""}>${esc(f.name)}${mine && f.id===mine.id ? "（我）":""}</option>`
+  ).join("");
+
+  if(!viewFam){
+    root.innerHTML = `
+      <div class="empty">尚未設定身分，看不到「我的」清單<br/><br/>
+        <button class="btn" id="setIdBtn">設定我的身分</button>
+      </div>
+      ${families.length ? `<div class="field" style="margin-top:16px">
+        <label>或直接看某一家的清單</label>
+        <select id="famSwitch"><option value="">請選擇</option>${famOptions}</select>
+      </div>` : ""}
+    `;
+    document.getElementById("setIdBtn").onclick = ()=> openIdentityPicker(()=> renderMineTab());
+    const sw = document.getElementById("famSwitch");
+    if(sw) sw.onchange = ()=>{ mineViewFamilyId = sw.value || null; renderMineTab(); };
+    return;
+  }
+
+  const myClaims = claims.filter(c=>c.familyId===viewFam.id);
+  const withItem = myClaims.map(c=>({...c, item: items.find(i=>i.id===c.itemId)})).filter(c=>c.item);
+  const doneCount = withItem.filter(c=>c.done).length;
+
+  const byCat = {};
+  withItem.forEach(c=>{ (byCat[c.item.categoryId] ??= []).push(c); });
+
+  const catBlocks = categories.filter(cat=> byCat[cat.id]?.length).map(cat=>{
+    const sortedRows = [...byCat[cat.id]].sort((a,b)=> (a.done?1:0) - (b.done?1:0));
+    const rows = sortedRows.map(c=>`
+      <div class="claim-row ${c.done?"full":""}" data-claim="${c.id}" style="${c.done?"opacity:.55":""}">
+        <span class="msi statusicon ${c.done?"full fill":"none"}">${c.done?"check_circle":"radio_button_unchecked"}</span>
+        <div class="body">
+          <div class="nm" style="${c.done?"text-decoration:line-through":""}">${esc(c.item.name)}</div>
+          <div class="sub">${c.qty} ${esc(c.item.unit||"")}</div>
+        </div>
+      </div>`).join("");
+    return `<div class="cat-title">${esc(cat.name)}</div>${rows}`;
+  }).join("") || `<div class="empty" style="padding:20px 0">${esc(viewFam.name)}還沒有認領任何項目</div>`;
+
+  root.innerHTML = `
+    <div class="field"><label>正在看</label><select id="famSwitch">${famOptions}</select></div>
+    <div class="summary-bar"><span>已完成 ${doneCount} / ${withItem.length}</span></div>
+    <button class="btn secondary block" id="copyListBtn" style="margin-bottom:12px">
+      <span class="msi" style="font-size:18px">content_copy</span> 複製成文字
+    </button>
+    ${catBlocks}
+  `;
+  document.getElementById("famSwitch").onchange = (ev)=>{ mineViewFamilyId = ev.target.value; renderMineTab(); };
+  document.getElementById("copyListBtn").onclick = ()=> copyMineListAsText(viewFam, byCat);
+  root.querySelectorAll(".claim-row").forEach(row=>{
+    row.addEventListener("click", async ()=>{
+      const c = withItem.find(x=>x.id===row.dataset.claim);
+      await updateDoc(doc(db, `events/${currentEvent.id}/claims/${c.id}`), {done: !c.done});
+    });
+  });
+}
+
+function copyMineListAsText(fam, byCat){
+  let text = `${currentEvent.year} ${currentEvent.venue?.name||""} － ${fam.name} 準備清單\n`;
+  categories.filter(cat=> byCat[cat.id]?.length).forEach(cat=>{
+    text += `\n【${cat.name}】\n`;
+    byCat[cat.id].forEach(c=>{ text += `${c.done?"☑":"☐"} ${c.item.name} ${c.qty}${c.item.unit||""}\n`; });
+  });
+  navigator.clipboard.writeText(text)
+    .then(()=> toast("已複製到剪貼簿"))
+    .catch(()=> toast("複製失敗，請手動選取"));
 }
 
 let modalMask;
