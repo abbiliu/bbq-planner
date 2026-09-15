@@ -1,0 +1,329 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+<title>年度烤肉聚會</title>
+<style>
+  :root{
+    --bg:#faf7f2; --card:#ffffff; --ink:#2b2420; --ink-dim:#8a8078;
+    --line:#ece5db; --accent:#d9622b; --accent-ink:#ffffff;
+    --ok:#4c8c5c; --warn:#c98a1a; --danger:#c14a4a;
+    --tab-h:64px; --safe-b:env(safe-area-inset-bottom,0px);
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--ink);
+    font-family:-apple-system,BlinkMacSystemFont,"PingFang TC","Noto Sans TC",sans-serif;
+    padding-bottom:calc(var(--tab-h) + var(--safe-b) + 12px);}
+  a{color:inherit}
+  header.topbar{position:sticky;top:0;z-index:10;background:rgba(250,247,242,.92);
+    backdrop-filter:blur(6px);border-bottom:1px solid var(--line);
+    padding:10px 16px;display:flex;align-items:center;justify-content:space-between;gap:8px}
+  header.topbar .title{font-weight:700;font-size:16px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  header.topbar .me{font-size:12px;color:var(--ink-dim);border:1px solid var(--line);
+    border-radius:999px;padding:4px 10px;white-space:nowrap}
+  main{padding:12px 16px 24px;max-width:640px;margin:0 auto}
+  .card{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:14px;margin-bottom:10px}
+  .empty{text-align:center;color:var(--ink-dim);padding:40px 16px;font-size:14px}
+  .btn{display:inline-flex;align-items:center;justify-content:center;gap:6px;
+    background:var(--accent);color:var(--accent-ink);border:none;border-radius:10px;
+    padding:10px 16px;font-size:14px;font-weight:600;cursor:pointer}
+  .btn.secondary{background:transparent;color:var(--accent);border:1px solid var(--accent)}
+  .btn.block{width:100%}
+  .event-row{display:flex;flex-direction:column;gap:4px;padding:14px 4px;border-bottom:1px solid var(--line)}
+  .event-row:last-child{border-bottom:none}
+  .event-row .top{display:flex;justify-content:space-between;align-items:baseline;gap:8px}
+  .event-row .seq{font-size:12px;color:var(--ink-dim)}
+  .event-row .name{font-weight:700;font-size:15px}
+  .event-row .meta{font-size:13px;color:var(--ink-dim)}
+  .event-row .memo{font-size:13px;color:var(--ink);margin-top:2px}
+  .event-row.cancelled{opacity:.5}
+  .event-row.cancelled .name{text-decoration:line-through}
+  .section-title{font-size:13px;color:var(--ink-dim);margin:18px 4px 6px;font-weight:600}
+  nav.tabbar{position:fixed;left:0;right:0;bottom:0;height:calc(var(--tab-h) + var(--safe-b));
+    padding-bottom:var(--safe-b);background:var(--card);border-top:1px solid var(--line);
+    display:flex;z-index:20}
+  nav.tabbar button{flex:1;border:none;background:none;display:flex;flex-direction:column;
+    align-items:center;justify-content:center;gap:2px;font-size:11px;color:var(--ink-dim);
+    cursor:pointer;font-family:inherit}
+  nav.tabbar button.active{color:var(--accent);font-weight:700}
+  nav.tabbar button .ic{font-size:18px}
+  .modal-mask{position:fixed;inset:0;background:rgba(0,0,0,.4);display:flex;align-items:flex-end;
+    justify-content:center;z-index:30}
+  .modal{background:var(--card);width:100%;max-width:640px;border-radius:16px 16px 0 0;
+    padding:18px 16px calc(18px + var(--safe-b));max-height:85vh;overflow:auto}
+  .modal h3{margin:0 0 12px}
+  .field{margin-bottom:12px}
+  .field label{display:block;font-size:12px;color:var(--ink-dim);margin-bottom:4px}
+  .field input,.field select,.field textarea{width:100%;padding:9px 10px;border:1px solid var(--line);
+    border-radius:8px;font-size:14px;font-family:inherit;background:#fff;color:var(--ink)}
+  .row{display:flex;gap:8px}
+  .row > *{flex:1}
+  .pill{display:inline-block;font-size:11px;padding:2px 8px;border-radius:999px;background:#f1ece3;color:var(--ink-dim)}
+  .toast{position:fixed;left:50%;bottom:calc(var(--tab-h) + var(--safe-b) + 16px);transform:translateX(-50%);
+    background:#2b2420;color:#fff;padding:10px 16px;border-radius:999px;font-size:13px;z-index:40;
+    opacity:0;pointer-events:none;transition:opacity .2s}
+  .toast.show{opacity:1}
+  .stat-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-top:10px}
+  .stat-grid .stat{background:#f6f1e9;border-radius:10px;padding:10px;text-align:center}
+  .stat-grid .stat .num{font-size:18px;font-weight:700}
+  .stat-grid .stat .lbl{font-size:11px;color:var(--ink-dim)}
+  #root:empty::after{content:'載入中…';display:block;text-align:center;padding:60px 0;color:var(--ink-dim)}
+</style>
+</head>
+<body>
+<header class="topbar">
+  <div class="title" id="topTitle">年度烤肉聚會</div>
+  <div class="me" id="meBadge">設定身分</div>
+</header>
+
+<main><div id="root"></div></main>
+
+<nav class="tabbar" id="tabbar" hidden>
+  <button data-tab="overview"><span class="ic">🏠</span>總覽</button>
+  <button data-tab="claims"><span class="ic">📋</span>認領</button>
+  <button data-tab="mine"><span class="ic">✅</span>我的清單</button>
+  <button data-tab="expenses"><span class="ic">💰</span>花費</button>
+  <button data-tab="settle"><span class="ic">🧮</span>結算</button>
+</nav>
+
+<div class="toast" id="toast"></div>
+
+<!-- Firebase (modular SDK via CDN, no build step) -->
+<script type="module">
+import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
+import {
+  getFirestore, collection, doc, getDocs, getDoc, setDoc, addDoc, updateDoc, deleteDoc,
+  query, orderBy, onSnapshot, writeBatch, serverTimestamp
+} from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
+
+const firebaseConfig = {
+  apiKey: "AIzaSyDpx0zPTSsUw9Snf-_8Khc-DjNvz4JfAXU",
+  authDomain: "bbq-planner-878af.firebaseapp.com",
+  projectId: "bbq-planner-878af",
+  storageBucket: "bbq-planner-878af.firebasestorage.app",
+  messagingSenderId: "72190261730",
+  appId: "1:72190261730:web:91d83f1e3b7fc0affd21bb"
+};
+const app = initializeApp(firebaseConfig);
+const db = getFirestore(app);
+
+// ---------- 歷年資料（初始化用種子資料，spec 6.5） ----------
+const HISTORY_SEED = [
+  {seq:1, year:2004, region:"台東", venueName:"學校7樓頂樓", host:"", memo:""},
+  {seq:2, year:2005, region:"台東", venueName:"某人家別墅", host:"", memo:""},
+  {seq:3, year:2006, region:"台東", venueName:"嘉哥家", host:"", memo:""},
+  {seq:4, year:2007, region:"桃園", venueName:"Renee家", host:"Renee", memo:""},
+  {seq:5, year:2008, region:"台南", venueName:"Abbi家", host:"Abbi", memo:"颱風是這一年嗎？"},
+  {seq:6, year:2009, region:"高雄", venueName:"阿旺家", host:"", memo:"喝酒？"},
+  {seq:7, year:2010, region:"彰化", venueName:"熊熊家", host:"", memo:"POLO衫day"},
+  {seq:8, year:2011, region:"南投", venueName:"某烤肉區", host:"", memo:"中秋cosplay"},
+  {seq:9, year:2012, region:"台北", venueName:"Chris家", host:"Chris", memo:"豪華海鮮趴"},
+  {seq:10, year:2013, region:"桃園", venueName:"Renee家", host:"Renee", memo:"斑鳩、仙女棒"},
+  {seq:11, year:2014, region:"台南", venueName:"Abbi家", host:"Abbi", memo:"圓仔有來"},
+  {seq:12, year:2015, region:"林口", venueName:"玉米家", host:"玉米", memo:"豪華別墅"},
+  {seq:13, year:2016, region:"小琉球", venueName:"八村民宿", host:"", memo:"比哥求婚"},
+  {seq:14, year:2017, region:"宜蘭", venueName:"玉田墅民宿", host:"", memo:"A沒去"},
+  {seq:15, year:2018, region:"新竹", venueName:"普羅旺斯小木屋", host:"", memo:"密室逃脫+下大雨"},
+  {seq:16, year:2019, region:"南投", venueName:"事外桃源民宿", host:"", memo:"很冷"},
+  {seq:17, year:2020, region:"高雄", venueName:"扇平山莊", host:"Abbi", memo:"抽出烤肉順序：R > B > C > A"},
+  {seq:null, year:2021, region:"苗栗", venueName:"慕雲享莊園", host:"", memo:"Covid-19", cancelled:true},
+  {seq:18, year:2022, region:"苗栗", venueName:"藍鵲莊園(改Renee家)", host:"", memo:"颱風again, 在Renee家"},
+  {seq:19, year:2023, region:"苗栗", venueName:"呼拉莊園", host:"Renee", memo:""},
+  {seq:20, year:2024, region:"南投", venueName:"溪畔小屋", host:"熊", memo:""},
+  {seq:21, year:2025, region:"苗栗", venueName:"南庄蔓森活", host:"Chris", memo:""},
+  {seq:22, year:2026, region:"南投", venueName:"悠森境度假村", host:"Abbi", memo:"被山上林園放鴿子"},
+];
+
+// ---------- 2026 內建烤肉模板（spec 第6節） ----------
+const BBQ_TEMPLATE = {
+  categories: [
+    {name:"烤肉食材", items:[
+      {name:"🍚 Pizza",unit:"份"},{name:"🍚 壽司－南投",unit:"份"},{name:"🥩 鴨胸",unit:"份"},
+      {name:"🥩 牛排",unit:"份"},{name:"🐟 透抽",unit:"份"},{name:"🐟 蝦",unit:"份"},
+      {name:"🐟 蛤蠣",unit:"份"},{name:"🐟 一夜干",unit:"份"},{name:"🥩 豬肉片",unit:"份"},
+      {name:"🥩 牛肉片",unit:"份"},{name:"🥩 飛魚卵香腸－盅龐",unit:"份"},{name:"🥩 全雞",unit:"份"},
+      {name:"🥩 爆漿雞腿捲－盅龐",unit:"份"},{name:"🥦 火鍋 原味/辣味",unit:"份"},{name:"🥦 烤肉蔬菜",unit:"份"},
+    ]},
+    {name:"器具類", items:[
+      {name:"卡式爐 1號",unit:"個",qtyFixed:1},{name:"卡式爐 2號",unit:"個",qtyFixed:1},
+      {name:"卡式爐 3號",unit:"個",qtyFixed:1},{name:"卡式爐 4號",unit:"個",qtyFixed:1},
+      {name:"烤盤 1號",unit:"個",qtyFixed:1},{name:"烤盤 2號",unit:"個",qtyFixed:1},
+      {name:"湯鍋+鍋杓 1號",unit:"個",qtyFixed:1},{name:"湯鍋+鍋杓 2號",unit:"個",qtyFixed:1},
+      {name:"瓦斯罐",unit:"瓶",qtyFixed:6},{name:"烤肉刷子",unit:"個",qtyFixed:1},{name:"夾子",unit:"個",qtyFixed:5},
+    ]},
+    {name:"其他用具", items:[
+      {name:"刀具",unit:"個",qtyFixed:2},{name:"剪刀",unit:"個",qtyFixed:2},{name:"衛生紙",unit:"個",qtyFixed:1},
+      {name:"餐巾紙",unit:"個",qtyFixed:1},{name:"垃圾袋",unit:"個"},{name:"洗碗精",unit:"個"},
+      {name:"菜瓜布",unit:"個",qtyFixed:1},{name:"刨刀",unit:"個",qtyFixed:1},{name:"切菜板",unit:"個",qtyFixed:2},
+      {name:"免洗碗",unit:"組",qtyFixed:1},{name:"公用大餐盤",unit:"個",qtyFixed:3},{name:"筷子",unit:"組",qtyFixed:1},
+      {name:"杯子",unit:"組",qtyFixed:1},{name:"水球",unit:"個"},{name:"仙女棒",unit:"個"},{name:"打火機",unit:"個"},
+    ]},
+    {name:"火鍋區", items:[
+      {name:"火鍋湯頭（麻辣）",unit:"份"},{name:"火鍋湯頭（一般）",unit:"份"},
+      {name:"火鍋青菜",unit:"份"},{name:"火鍋料",unit:"份"},{name:"蒸煮麵、泡麵",unit:"份"},
+    ]},
+    {name:"其他", items:[
+      {name:"海鹽、黑胡椒、白胡椒",unit:"份"},{name:"奶油",unit:"份"},{name:"棉花糖",unit:"份"},
+      {name:"手搖飲料",unit:"份"},{name:"一般飲料",unit:"份"},{name:"酒類",unit:"份"},
+    ]},
+  ]
+};
+
+// ---------- 身分（localStorage） ----------
+const ME_KEY = "bbq_my_family_id";
+function getMyFamilyId(){ return localStorage.getItem(ME_KEY) || ""; }
+function setMyFamilyId(id){ localStorage.setItem(ME_KEY, id); }
+
+// ---------- 小工具 ----------
+function toast(msg){
+  const el = document.getElementById("toast");
+  el.textContent = msg; el.classList.add("show");
+  clearTimeout(toast._t); toast._t = setTimeout(()=>el.classList.remove("show"), 2200);
+}
+function h(strings, ...vals){ return strings.reduce((a,s,i)=>a+s+(vals[i]??""),""); }
+const root = document.getElementById("root");
+const tabbar = document.getElementById("tabbar");
+const meBadge = document.getElementById("meBadge");
+const topTitle = document.getElementById("topTitle");
+
+// ---------- 一次性資料初始化：歷年資料 + 2026 模板 ----------
+async function ensureSeedData(){
+  const snap = await getDocs(collection(db,"events"));
+  if(!snap.empty) return; // 已經有資料就不重複匯入
+
+  const batch = writeBatch(db);
+  for(const e of HISTORY_SEED){
+    const ref = doc(collection(db,"events"));
+    batch.set(ref, {
+      seq: e.seq, year: e.year, title: `第${e.seq ?? "-"}屆烤肉聚會`,
+      date: null, checkIn: null, checkOut: null,
+      region: e.region, host: e.host, memo: e.memo,
+      cancelled: !!e.cancelled,
+      venue: {name: e.venueName, address:"", phone:"", mapUrl:"", notes:""},
+      schedule: [], splitMode: "perHead", kidFixedFee: 0,
+      status: e.year < 2026 ? "done" : "planning",
+      createdAt: serverTimestamp(),
+    });
+  }
+  await batch.commit();
+
+  // 2026 事件建好之後，補建它的類別/項目模板
+  const evSnap = await getDocs(query(collection(db,"events")));
+  const ev2026 = evSnap.docs.find(d => d.data().year === 2026);
+  if(ev2026){
+    const b2 = writeBatch(db);
+    BBQ_TEMPLATE.categories.forEach((cat, ci)=>{
+      const catRef = doc(collection(db, `events/${ev2026.id}/categories`));
+      b2.set(catRef, {name: cat.name, order: ci});
+      cat.items.forEach((it, ii)=>{
+        const itemRef = doc(collection(db, `events/${ev2026.id}/items`));
+        b2.set(itemRef, {
+          categoryId: catRef.id, name: it.name, unit: it.unit,
+          qtyNeeded: it.qtyFixed ?? 1, note: "", order: ii
+        });
+      });
+    });
+    await b2.commit();
+  }
+  toast("已匯入歷年資料與 2026 模板");
+}
+
+// ---------- 首頁／活動列表 ----------
+function renderEventList(events){
+  if(events.length === 0){
+    root.innerHTML = `<div class="empty">還沒有任何活動<br/><br/>
+      <button class="btn" id="btnSeed">匯入歷年資料 + 2026 模板</button></div>`;
+    document.getElementById("btnSeed").onclick = async ()=>{
+      root.innerHTML = `<div class="empty">匯入中…</div>`;
+      await ensureSeedData();
+    };
+    return;
+  }
+
+  const sorted = [...events].sort((a,b)=> (b.year||0) - (a.year||0));
+  const rows = sorted.map(e=>{
+    const seqLabel = e.cancelled ? "停辦" : (e.seq ? `第 ${e.seq} 屆` : "");
+    const metaParts = [e.region, e.venue?.name].filter(Boolean);
+    return `<div class="event-row ${e.cancelled?"cancelled":""}" data-id="${e.id}">
+      <div class="top">
+        <span class="name">${e.year} ${e.venue?.name ? "・"+e.venue.name : ""}</span>
+        <span class="seq pill">${seqLabel}</span>
+      </div>
+      <div class="meta">${metaParts.join("　")}${e.host ? "　主辦："+e.host : ""}</div>
+      ${e.memo ? `<div class="memo">💬 ${e.memo}</div>` : ""}
+    </div>`;
+  }).join("");
+
+  const doneCount = sorted.filter(e=>!e.cancelled && e.seq).length;
+  root.innerHTML = `
+    <div class="card">
+      <div style="font-weight:700;margin-bottom:4px">歷年紀錄</div>
+      <div style="font-size:12px;color:var(--ink-dim)">辦過 ${doneCount} 屆</div>
+      <div class="stat-grid">
+        <div class="stat"><div class="num">${doneCount}</div><div class="lbl">屆數</div></div>
+        <div class="stat"><div class="num">${new Set(sorted.map(e=>e.region).filter(Boolean)).size}</div><div class="lbl">去過地區</div></div>
+        <div class="stat"><div class="num">${new Set(sorted.map(e=>e.host).filter(Boolean)).size}</div><div class="lbl">主辦人數</div></div>
+      </div>
+    </div>
+    <div class="card" style="padding:4px 10px">${rows}</div>
+    <button class="btn block" id="btnNewEvent">＋ 新增活動</button>
+  `;
+
+  root.querySelectorAll(".event-row").forEach(row=>{
+    row.addEventListener("click", ()=> openEventDetail(row.dataset.id, events));
+  });
+  document.getElementById("btnNewEvent").onclick = ()=> toast("新增活動功能下一階段實作");
+}
+
+function openEventDetail(id, events){
+  const e = events.find(x=>x.id===id);
+  if(!e) return;
+  root_showModal(`
+    <h3>${e.year}　${e.venue?.name||""}</h3>
+    <div class="field"><label>場次</label>${e.seq ? "第"+e.seq+"屆" : (e.cancelled?"停辦":"—")}</div>
+    <div class="field"><label>區域</label>${e.region||"—"}</div>
+    <div class="field"><label>主辦人</label>${e.host||"—"}</div>
+    <div class="field"><label>記憶點</label><textarea id="memoInput" rows="2">${e.memo||""}</textarea></div>
+    <button class="btn block" id="saveMemo">儲存記憶點</button>
+  `);
+  document.getElementById("saveMemo").onclick = async ()=>{
+    const val = document.getElementById("memoInput").value;
+    await updateDoc(doc(db,"events",id), {memo: val});
+    toast("已儲存"); closeModal();
+  };
+}
+
+let modalMask;
+function root_showModal(innerHtml){
+  closeModal();
+  modalMask = document.createElement("div");
+  modalMask.className = "modal-mask";
+  modalMask.innerHTML = `<div class="modal">${innerHtml}</div>`;
+  modalMask.addEventListener("click", (ev)=>{ if(ev.target===modalMask) closeModal(); });
+  document.body.appendChild(modalMask);
+}
+function closeModal(){ if(modalMask){ modalMask.remove(); modalMask=null; } }
+
+// ---------- 啟動 ----------
+function boot(){
+  const myId = getMyFamilyId();
+  meBadge.textContent = myId ? "身分："+myId : "設定身分";
+  meBadge.onclick = ()=>{
+    const id = prompt("輸入你的家庭代號（之後會改成從名單選）：", getMyFamilyId());
+    if(id){ setMyFamilyId(id); meBadge.textContent = "身分："+id; }
+  };
+
+  onSnapshot(query(collection(db,"events")), (snap)=>{
+    const events = snap.docs.map(d=>({id:d.id, ...d.data()}));
+    renderEventList(events);
+  }, (err)=>{
+    console.error(err);
+    root.innerHTML = `<div class="empty">讀取失敗，可能是 Firestore 權限規則尚未開放。<br/>
+      <span style="font-size:12px">${err.message}</span></div>`;
+  });
+}
+boot();
+</script>
+</body>
+</html>
