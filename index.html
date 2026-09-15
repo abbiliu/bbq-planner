@@ -79,7 +79,8 @@
   .field input,.field select,.field textarea{width:100%;min-width:0;box-sizing:border-box;
     padding:10px 10px;border:1px solid var(--line);
     border-radius:8px;font-size:16px;font-family:inherit;background:#fff;color:var(--ink)}
-  .field input[type="date"]{min-width:0;-webkit-min-logical-width:0}
+  .date-crop{position:relative;width:100%;height:43px;overflow:hidden}
+  .date-crop input[type="date"]{position:absolute;left:0;right:0;top:0;bottom:0;width:100%;margin:0}
   .row{display:flex;gap:8px}
   .row > *{flex:1;min-width:0}
   .pill{display:inline-block;font-size:12px;padding:3px 9px;border-radius:999px;background:#f1ece3;color:var(--ink-dim)}
@@ -611,40 +612,14 @@ function renderFamiliesTab(){
   root.querySelectorAll(".delFam").forEach(b=> b.onclick = ()=> deleteFamily(b.dataset.id));
 }
 
-// 年/月/日三個下拉選單，寬度完全自己控制，避開手機原生 date input 的排版問題
-function dateSelectHtml(prefix, isoValue, label){
-  const d = isoValue ? new Date(isoValue+"T00:00:00") : null;
-  const curYear = new Date().getFullYear();
-  const y = d ? d.getFullYear() : curYear;
-  const m = d ? d.getMonth()+1 : 1;
-  const day = d ? d.getDate() : 1;
-  const years = []; for(let yy=curYear-1; yy<=curYear+3; yy++) years.push(yy);
-  const months = Array.from({length:12}, (_,i)=>i+1);
-  const days = Array.from({length:31}, (_,i)=>i+1);
-  return `
-    <div class="field"><label>${label}</label>
-      <div class="row">
-        <select id="${prefix}Y">${years.map(yy=>`<option value="${yy}" ${yy===y?"selected":""}>${yy}年</option>`).join("")}</select>
-        <select id="${prefix}M">${months.map(mm=>`<option value="${mm}" ${mm===m?"selected":""}>${mm}月</option>`).join("")}</select>
-        <select id="${prefix}D">${days.map(dd=>`<option value="${dd}" ${dd===day?"selected":""}>${dd}日</option>`).join("")}</select>
-      </div>
-    </div>`;
-}
-function readDateSelect(prefix){
-  const y = document.getElementById(prefix+"Y").value;
-  const m = String(document.getElementById(prefix+"M").value).padStart(2,"0");
-  const d = String(document.getElementById(prefix+"D").value).padStart(2,"0");
-  return `${y}-${m}-${d}`;
-}
-
 function openEventInfoModal(){
   const e = currentEvent;
   root_showModal(`
     <h3>編輯活動資訊</h3>
     <div class="field"><label>地點名稱</label><input id="evVenue" value="${esc(e.venue?.name||"")}" /></div>
     <div class="field"><label>地址</label><input id="evAddr" value="${esc(e.venue?.address||"")}" /></div>
-    ${dateSelectHtml("evCheckIn", e.checkIn, "入住日期")}
-    ${dateSelectHtml("evCheckOut", e.checkOut, "退房日期")}
+    <div class="field"><label>入住日期</label><div class="date-crop"><input id="evCheckIn" type="date" value="${esc(e.checkIn||"")}" /></div></div>
+    <div class="field"><label>退房日期</label><div class="date-crop"><input id="evCheckOut" type="date" value="${esc(e.checkOut||"")}" /></div></div>
     <div class="field"><label>電話</label><input id="evPhone" value="${esc(e.venue?.phone||"")}" /></div>
     <div class="field"><label>備註（WiFi等）</label><input id="evNotes" value="${esc(e.venue?.notes||"")}" /></div>
     <div class="field"><label>食材設備分攤方式</label>
@@ -667,8 +642,8 @@ function openEventInfoModal(){
   };
   document.getElementById("saveEvInfo").onclick = async ()=>{
     await updateDoc(doc(db,"events",e.id), {
-      checkIn: readDateSelect("evCheckIn"),
-      checkOut: readDateSelect("evCheckOut"),
+      checkIn: document.getElementById("evCheckIn").value || null,
+      checkOut: document.getElementById("evCheckOut").value || null,
       venue: {
         name: document.getElementById("evVenue").value.trim(),
         address: document.getElementById("evAddr").value.trim(),
