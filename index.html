@@ -4,7 +4,14 @@
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
 <title>年度烤肉聚會</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:opsz,wght,FILL,GRAD@20..48,300..500,0..1,0" />
 <style>
+  .msi{font-family:'Material Symbols Outlined';font-weight:normal;font-style:normal;
+    font-size:20px;line-height:1;letter-spacing:normal;text-transform:none;
+    display:inline-block;white-space:nowrap;word-wrap:normal;direction:ltr;
+    -webkit-font-smoothing:antialiased;vertical-align:middle;
+    font-variation-settings:'FILL' 0,'wght' 400,'GRAD' 0,'opsz' 24}
+  .msi.fill{font-variation-settings:'FILL' 1,'wght' 400,'GRAD' 0,'opsz' 24}
   :root{
     --bg:#faf7f2; --card:#ffffff; --ink:#2b2420; --ink-dim:#8a8078;
     --line:#ece5db; --accent:#d9622b; --accent-ink:#ffffff;
@@ -36,7 +43,8 @@
   .event-row .seq{font-size:12px;color:var(--ink-dim)}
   .event-row .name{font-weight:700;font-size:15px}
   .event-row .meta{font-size:13px;color:var(--ink-dim)}
-  .event-row .memo{font-size:13px;color:var(--ink);margin-top:2px}
+  .event-row .memo{font-size:13px;color:var(--ink);margin-top:2px;display:flex;align-items:center;gap:4px}
+  .event-row .memo .msi{font-size:15px;color:var(--ink-dim)}
   .event-row.cancelled{opacity:.5}
   .event-row.cancelled .name{text-decoration:line-through}
   .section-title{font-size:13px;color:var(--ink-dim);margin:18px 4px 6px;font-weight:600}
@@ -47,7 +55,7 @@
     align-items:center;justify-content:center;gap:2px;font-size:11px;color:var(--ink-dim);
     cursor:pointer;font-family:inherit}
   nav.tabbar button.active{color:var(--accent);font-weight:700}
-  nav.tabbar button .ic{font-size:18px}
+  nav.tabbar button .msi{font-size:20px}
   .modal-mask{position:fixed;inset:0;background:rgba(0,0,0,.4);display:flex;align-items:flex-end;
     justify-content:center;z-index:30}
   .modal{background:var(--card);width:100%;max-width:640px;border-radius:16px 16px 0 0;
@@ -80,11 +88,11 @@
 <main><div id="root"></div></main>
 
 <nav class="tabbar" id="tabbar" hidden>
-  <button data-tab="overview"><span class="ic">🏠</span>總覽</button>
-  <button data-tab="claims"><span class="ic">📋</span>認領</button>
-  <button data-tab="mine"><span class="ic">✅</span>我的清單</button>
-  <button data-tab="expenses"><span class="ic">💰</span>花費</button>
-  <button data-tab="settle"><span class="ic">🧮</span>結算</button>
+  <button data-tab="overview"><span class="msi">home</span>總覽</button>
+  <button data-tab="claims"><span class="msi">checklist</span>認領</button>
+  <button data-tab="mine"><span class="msi">task_alt</span>我的清單</button>
+  <button data-tab="expenses"><span class="msi">payments</span>花費</button>
+  <button data-tab="settle"><span class="msi">calculate</span>結算</button>
 </nav>
 
 <div class="toast" id="toast"></div>
@@ -251,7 +259,7 @@ function renderEventList(events){
         <span class="seq pill">${seqLabel}</span>
       </div>
       <div class="meta">${metaParts.join("　")}${e.host ? "　主辦："+e.host : ""}</div>
-      ${e.memo ? `<div class="memo">💬 ${e.memo}</div>` : ""}
+      ${e.memo ? `<div class="memo"><span class="msi" style="font-size:15px">chat_bubble</span> ${e.memo}</div>` : ""}
     </div>`;
   }).join("");
 
@@ -267,7 +275,7 @@ function renderEventList(events){
       </div>
     </div>
     <div class="card" style="padding:4px 10px">${rows}</div>
-    <button class="btn block" id="btnNewEvent">＋ 新增活動</button>
+    <button class="btn block" id="btnNewEvent"><span class="msi" style="font-size:18px">add</span> 新增活動</button>
   `;
 
   root.querySelectorAll(".event-row").forEach(row=>{
