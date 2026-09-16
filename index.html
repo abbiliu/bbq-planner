@@ -939,8 +939,15 @@ function openClaimModal(item, fam){
 
   const state = { qty: defaultQty };
   root_showModal(`
-    <h3>${esc(item.name)}</h3>
-    <div style="font-size:13px;color:var(--ink-dim);margin-bottom:10px">需要 ${item.qtyNeeded} ${esc(item.unit||"")}，目前已認領 ${claimedQty}</div>
+    <h3>調整項目</h3>
+    <div class="field">
+      <label>項目名稱</label>
+      <div class="row">
+        <input id="editItemName" value="${esc(item.name)}" />
+        <button class="btn secondary" id="saveItemName" style="flex:0 0 auto">存</button>
+      </div>
+    </div>
+    <div style="font-size:13px;color:var(--ink-dim);margin:14px 0 10px">需要 ${item.qtyNeeded} ${esc(item.unit||"")}，目前已認領 ${claimedQty}</div>
     <div class="field"><label>我認領（${esc(item.unit||"")}）</label>
       <div class="stepper" data-key="qty">
         <button type="button" class="stepbtn minus">－</button>
@@ -953,6 +960,13 @@ function openClaimModal(item, fam){
       ${mineClaim ? `<button class="btn secondary block" id="cancelClaim">取消認領</button>` : ""}
     </div>
   `);
+  document.getElementById("saveItemName").onclick = async ()=>{
+    const newName = document.getElementById("editItemName").value.trim();
+    if(!newName){ toast("項目名稱不能空白"); return; }
+    await updateDoc(doc(db, `events/${currentEvent.id}/items/${item.id}`), {name: newName});
+    item.name = newName;
+    toast("已更新項目名稱");
+  };
   const qtyStepper = modalMask.querySelector(".stepper");
   const qtyValEl = qtyStepper.querySelector(".stepval");
   qtyStepper.querySelector(".minus").onclick = ()=>{ state.qty = Math.max(0, state.qty-1); qtyValEl.textContent = state.qty; };
