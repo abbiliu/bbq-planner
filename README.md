@@ -28,3 +28,4 @@ https://abbiliu.github.io/bbq-planner/
 - [x] 分攤方式設定（4.8 的一部分，併入活動資訊編輯：按人頭全額/小孩半價/小孩不算/小孩固定收費/按家庭均分）
 - [ ] 設定頁其餘部分（標記活動已結束等，身分切換已經有了）
 - [x] GitHub Pages 部署上線
+- [x] 「加到主畫面」app icon + manifest.json（ZOO BBQ 圖示，iOS/Android 都有對應尺寸含 Android maskable 安全邊界）
