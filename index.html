@@ -128,7 +128,7 @@
   .cat-title{font-size:14px;font-weight:700;color:var(--ink);margin:16px 4px 6px}
   .claim-row{display:flex;align-items:center;gap:10px;padding:10px 8px;border-radius:10px;
     border-left:4px solid transparent;margin-bottom:4px;cursor:pointer;user-select:none;
-    -webkit-tap-highlight-color:transparent}
+    -webkit-tap-highlight-color:transparent;background:var(--bg)}
   .claim-row:active{filter:brightness(0.97)}
   .claim-row.full{background:#eef7ee}
   .claim-row.partial{background:#fff8ea}
@@ -144,6 +144,14 @@
   .statusicon.full{color:var(--ok)}
   .statusicon.partial{color:var(--warn)}
   .statusicon.none{color:var(--ink-dim)}
+  .swipe-wrap{position:relative;overflow:hidden;border-radius:10px;margin-bottom:4px}
+  .swipe-wrap .claim-row{margin-bottom:0;touch-action:pan-y;position:relative;
+    transition:transform .2s ease}
+  .swipe-actions{position:absolute;top:0;right:0;bottom:0;width:84px;display:flex}
+  .swipe-actions button{flex:1;border:none;background:var(--danger);color:#fff;
+    display:flex;flex-direction:column;align-items:center;justify-content:center;
+    gap:2px;font-size:12px;font-family:inherit;cursor:pointer}
+  .swipe-actions .msi{font-size:20px}
   .summary-bar{display:flex;justify-content:space-between;font-size:13px;color:var(--ink-dim);
     margin-bottom:10px;padding:0 4px}
   .fam-picker label.opt{display:flex;align-items:center;gap:8px;padding:10px 4px;border-bottom:1px solid var(--line);font-size:15px}
@@ -823,14 +831,19 @@ function renderClaimsTab(){
         const subParts = [];
         if(mineClaim) subParts.push(`<span class="mine-tag">我 ×${mineClaim.qty}</span>`);
         if(othersLabel) subParts.push(othersLabel);
-        return `<div class="claim-row ${statusClass} ${mineClaim?"mine":""}" data-id="${it.id}">
-          <span class="msi statusicon ${statusClass}${statusClass!=="none"?" fill":""}">${statusIconName}</span>
-          <div class="body">
-            <div class="nm">${esc(it.name)}${it.note?`<span class="subnote">${esc(it.note)}</span>`:""}</div>
-            ${subParts.length ? `<div class="sub">${subParts.join("　")}</div>` : ""}
+        return `<div class="swipe-wrap">
+          <div class="swipe-actions">
+            <button class="swipe-delete-btn" data-id="${it.id}"><span class="msi">delete</span>刪除</button>
           </div>
-          <div class="qty">${it.claimedQty}/${it.qtyNeeded}${esc(it.unit||"")}</div>
-          <button class="iconbtn qtyEditBtn" data-id="${it.id}"><span class="msi" style="font-size:20px">tune</span></button>
+          <div class="claim-row ${statusClass} ${mineClaim?"mine":""}" data-id="${it.id}">
+            <span class="msi statusicon ${statusClass}${statusClass!=="none"?" fill":""}">${statusIconName}</span>
+            <div class="body">
+              <div class="nm">${esc(it.name)}${it.note?`<span class="subnote">${esc(it.note)}</span>`:""}</div>
+              ${subParts.length ? `<div class="sub">${subParts.join("　")}</div>` : ""}
+            </div>
+            <div class="qty">${it.claimedQty}/${it.qtyNeeded}${esc(it.unit||"")}</div>
+            <button class="iconbtn qtyEditBtn" data-id="${it.id}"><span class="msi" style="font-size:20px">tune</span></button>
+          </div>
         </div>`;
       }).join("");
       return `<div class="cat-title">${esc(c.name)}</div>${rows}`;
@@ -856,6 +869,9 @@ function renderClaimsTab(){
   root.querySelectorAll(".chip[data-f]").forEach(b=> b.onclick = ()=>{ claimFilter = b.dataset.f; renderClaimsTab(); });
   root.querySelectorAll(".chip[data-c]").forEach(b=> b.onclick = ()=>{ categoryFilter = b.dataset.c; renderClaimsTab(); });
   document.getElementById("addItemBtn").onclick = openAddItemModal;
+  // 先掛滑動手勢（含它自己的 click 攔截），再掛認領用的 click，
+  // 同一顆元素上先註冊的 listener 會先跑，滑動判定才攔得住認領誤觸
+  root.querySelectorAll(".swipe-wrap").forEach(wrap=> attachSwipeToDelete(wrap));
   root.querySelectorAll(".claim-row").forEach(row=>{
     row.addEventListener("click", (ev)=>{
       if(ev.target.closest(".qtyEditBtn")) return;
@@ -868,6 +884,88 @@ function renderClaimsTab(){
       ensureIdentityThen(fam=> openClaimModal(items.find(i=>i.id===b.dataset.id), fam));
     });
   });
+  root.querySelectorAll(".swipe-delete-btn").forEach(b=>{
+    b.addEventListener("click", (ev)=>{
+      ev.stopPropagation();
+      confirmDeleteItem(b.dataset.id);
+    });
+  });
+}
+
+// ---------- 滑動刪除項目 ----------
+function closeAllSwipes(){
+  document.querySelectorAll(".swipe-wrap.open").forEach(w=>{
+    w.classList.remove("open");
+    const row = w.querySelector(".claim-row");
+    if(row) row.style.transform = "translateX(0)";
+  });
+}
+document.addEventListener("click", (ev)=>{
+  if(!ev.target.closest(".swipe-wrap")) closeAllSwipes();
+}, true);
+
+function attachSwipeToDelete(wrap){
+  const row = wrap.querySelector(".claim-row");
+  const actionsEl = wrap.querySelector(".swipe-actions");
+  const W = actionsEl.offsetWidth || 84;
+  let startX=0, startY=0, curX=0, dragging=false, moved=false, axis=null;
+
+  row.addEventListener("pointerdown", (ev)=>{
+    if(ev.pointerType==="mouse" && ev.button!==0) return;
+    startX = ev.clientX; startY = ev.clientY;
+    dragging = true; moved = false; axis = null;
+    row.style.transition = "none";
+    try{ row.setPointerCapture(ev.pointerId); }catch(e){}
+  });
+  row.addEventListener("pointermove", (ev)=>{
+    if(!dragging) return;
+    const dx = ev.clientX - startX, dy = ev.clientY - startY;
+    if(axis===null && (Math.abs(dx)>6 || Math.abs(dy)>6)){
+      axis = Math.abs(dx) > Math.abs(dy) ? "x" : "y";
+      if(axis==="x") closeAllSwipes();
+    }
+    if(axis!=="x") return;
+    moved = true;
+    const base = wrap.classList.contains("open") ? -W : 0;
+    curX = Math.min(0, Math.max(-W-16, base + dx));
+    row.style.transform = `translateX(${curX}px)`;
+  });
+  function endDrag(){
+    if(!dragging) return;
+    dragging = false;
+    row.style.transition = "";
+    if(axis==="x"){
+      if(curX < -W/2){ wrap.classList.add("open"); row.style.transform = `translateX(-${W}px)`; }
+      else { wrap.classList.remove("open"); row.style.transform = "translateX(0)"; }
+    }
+  }
+  row.addEventListener("pointerup", endDrag);
+  row.addEventListener("pointercancel", endDrag);
+
+  // 攔截點擊：剛滑動過、或這一列已經是打開狀態時，這次點擊不要觸發認領
+  row.addEventListener("click", (ev)=>{
+    if(moved){ ev.stopImmediatePropagation(); moved=false; return; }
+    if(wrap.classList.contains("open")){
+      ev.stopImmediatePropagation();
+      wrap.classList.remove("open");
+      row.style.transform = "translateX(0)";
+    }
+  });
+}
+
+async function confirmDeleteItem(itemId){
+  const item = items.find(i=>i.id===itemId);
+  if(!item) return;
+  if(!confirm(`確定要刪除「${item.name}」嗎？這個項目的認領紀錄也會一併刪除。`)){
+    closeAllSwipes();
+    return;
+  }
+  const related = claims.filter(c=>c.itemId===itemId);
+  for(const c of related){
+    await deleteDoc(doc(db, `events/${currentEvent.id}/claims/${c.id}`));
+  }
+  await deleteDoc(doc(db, `events/${currentEvent.id}/items/${itemId}`));
+  toast("已刪除項目");
 }
 
 // 點一下直接認領／取消認領（大部分項目需求量都是1，不用每次都跳數量視窗）
