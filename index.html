@@ -411,7 +411,7 @@ function openEventDetail(id){
 let currentEvent = null;
 let currentTab = "overview";
 let families = [], categories = [], items = [], claims = [], expenses = [];
-let claimFilter = "all";
+let claimFilter = "need";
 let categoryFilter = "all";
 let unsubs = [];
 
@@ -420,7 +420,7 @@ function clearUnsubs(){ unsubs.forEach(u=>u()); unsubs = []; }
 function enterEvent(e){
   currentEvent = e;
   currentTab = "overview";
-  claimFilter = "all";
+  claimFilter = "need";
   document.body.classList.add("in-event");
   tabbar.hidden = false;
   backBtn.hidden = false;
