@@ -861,14 +861,20 @@ function renderClaimsTab(){
       <button class="chip ${claimFilter==='mine'?'active':''}" data-f="mine">我認領的</button>
     </div>
     <div class="chips">${catChips}</div>
-    <button class="btn secondary block" id="addItemBtn" style="margin-bottom:12px">
-      <span class="msi" style="font-size:18px">add</span> 新增項目
-    </button>
+    <div class="row" style="margin-bottom:12px">
+      <button class="btn secondary block" id="addItemBtn">
+        <span class="msi" style="font-size:18px">add</span> 新增項目
+      </button>
+      <button class="btn secondary block" id="bulkEditBtn">
+        <span class="msi" style="font-size:18px">edit_note</span> 批次編輯
+      </button>
+    </div>
     ${catBlocks}
   `;
   root.querySelectorAll(".chip[data-f]").forEach(b=> b.onclick = ()=>{ claimFilter = b.dataset.f; renderClaimsTab(); });
   root.querySelectorAll(".chip[data-c]").forEach(b=> b.onclick = ()=>{ categoryFilter = b.dataset.c; renderClaimsTab(); });
   document.getElementById("addItemBtn").onclick = openAddItemModal;
+  document.getElementById("bulkEditBtn").onclick = openBulkEditModal;
   // 先掛滑動手勢（含它自己的 click 攔截），再掛認領用的 click，
   // 同一顆元素上先註冊的 listener 會先跑，滑動判定才攔得住認領誤觸
   root.querySelectorAll(".swipe-wrap").forEach(wrap=> attachSwipeToDelete(wrap));
@@ -1025,6 +1031,142 @@ function openAddItemModal(){
       order: sameCount
     });
     toast("已新增項目"); closeModal();
+  };
+}
+
+// ---------- 批次編輯（整份物資清單用文字一次改） ----------
+function itemsToBulkText(){
+  const byCat = {};
+  items.forEach(it=>{ (byCat[it.categoryId] ??= []).push(it); });
+  return categories.map(c=>{
+    const its = (byCat[c.id]||[]).slice().sort((a,b)=>(a.order||0)-(b.order||0));
+    const lines = its.map(it=>{
+      const parts = [it.name, it.unit||"", String(it.qtyNeeded||1)];
+      if(it.note) parts.push(it.note);
+      return parts.join(" / ");
+    });
+    return `【${c.name}】\n${lines.join("\n")}`;
+  }).join("\n\n");
+}
+
+function parseBulkText(text){
+  const blocks = [];
+  let current = null;
+  text.split("\n").forEach(raw=>{
+    const line = raw.trim();
+    if(!line) return;
+    const catMatch = line.match(/^【(.+)】$/);
+    if(catMatch){
+      current = { catName: catMatch[1].trim(), items: [] };
+      blocks.push(current);
+      return;
+    }
+    if(!current) return;
+    const parts = line.split(/\s*\/\s*/);
+    const name = (parts[0]||"").trim();
+    if(!name) return;
+    current.items.push({
+      name,
+      unit: (parts[1]||"").trim(),
+      qtyNeeded: Number(parts[2]) || 1,
+      note: (parts[3]||"").trim()
+    });
+  });
+  return blocks.filter(b=>b.catName);
+}
+
+function computeBulkDiff(blocks){
+  const plan = { newCategories: [], itemAdds: [], itemUpdates: [], itemDeletes: [] };
+  const matchedItemIds = new Set();
+  let newCatOrder = categories.length;
+
+  blocks.forEach(block=>{
+    const cat = categories.find(c=>c.name===block.catName);
+    let catRefKey;
+    if(cat){
+      catRefKey = { existing:true, id: cat.id };
+    } else {
+      let pending = plan.newCategories.find(nc=>nc.name===block.catName);
+      if(!pending){
+        pending = { name: block.catName, order: newCatOrder++, tempId: "new:"+block.catName };
+        plan.newCategories.push(pending);
+      }
+      catRefKey = { existing:false, tempId: pending.tempId };
+    }
+    const existingInCat = catRefKey.existing
+      ? items.filter(it=>it.categoryId===catRefKey.id)
+      : [];
+    block.items.forEach((line, idx)=>{
+      const existing = existingInCat.find(it=>it.name===line.name && !matchedItemIds.has(it.id));
+      if(existing){
+        matchedItemIds.add(existing.id);
+        const changed = (existing.unit||"")!==line.unit
+          || (existing.qtyNeeded||1)!==line.qtyNeeded
+          || (existing.note||"")!==line.note
+          || (existing.order||0)!==idx;
+        if(changed) plan.itemUpdates.push({ id: existing.id, unit: line.unit, qtyNeeded: line.qtyNeeded, note: line.note, order: idx });
+      } else {
+        plan.itemAdds.push({ catRefKey, name: line.name, unit: line.unit, qtyNeeded: line.qtyNeeded, note: line.note, order: idx });
+      }
+    });
+  });
+
+  plan.itemDeletes = items.filter(it=>!matchedItemIds.has(it.id)).map(it=>({
+    id: it.id, claimIds: claims.filter(c=>c.itemId===it.id).map(c=>c.id)
+  }));
+
+  return plan;
+}
+
+async function commitBulkDiff(plan){
+  const batch = writeBatch(db);
+  const tempIdToRef = {};
+  plan.newCategories.forEach(nc=>{
+    const ref = doc(collection(db, `events/${currentEvent.id}/categories`));
+    batch.set(ref, { name: nc.name, order: nc.order });
+    tempIdToRef[nc.tempId] = ref.id;
+  });
+  plan.itemAdds.forEach(a=>{
+    const catId = a.catRefKey.existing ? a.catRefKey.id : tempIdToRef[a.catRefKey.tempId];
+    const ref = doc(collection(db, `events/${currentEvent.id}/items`));
+    batch.set(ref, { categoryId: catId, name: a.name, unit: a.unit, qtyNeeded: a.qtyNeeded, note: a.note, order: a.order });
+  });
+  plan.itemUpdates.forEach(u=>{
+    batch.update(doc(db, `events/${currentEvent.id}/items/${u.id}`), { unit: u.unit, qtyNeeded: u.qtyNeeded, note: u.note, order: u.order });
+  });
+  plan.itemDeletes.forEach(d=>{
+    d.claimIds.forEach(cid=> batch.delete(doc(db, `events/${currentEvent.id}/claims/${cid}`)));
+    batch.delete(doc(db, `events/${currentEvent.id}/items/${d.id}`));
+  });
+  await batch.commit();
+}
+
+function openBulkEditModal(){
+  const text = itemsToBulkText();
+  root_showModal(`
+    <h3>批次編輯物資清單</h3>
+    <div style="font-size:13px;color:var(--ink-dim);margin-bottom:10px;line-height:1.6">
+      每個分類一行【分類名稱】，底下每行一個項目：<br>
+      <b>項目名稱 / 單位 / 需要數量 / 備註(選填)</b><br>
+      新增一行＝新增項目、刪掉一行＝刪除該項目（連同認領紀錄一起刪）、分類名稱打新的＝新增分類（不會刪舊分類，也不會改認領人已認領的內容，只改項目本身資訊）。
+    </div>
+    <div class="field"><textarea id="bulkText" rows="16" style="font-family:ui-monospace,monospace;font-size:13px;white-space:pre">${esc(text)}</textarea></div>
+    <button class="btn block" id="saveBulk">儲存變更</button>
+  `);
+  document.getElementById("saveBulk").onclick = async ()=>{
+    const raw = document.getElementById("bulkText").value;
+    const blocks = parseBulkText(raw);
+    if(!blocks.length){ toast("格式看起來不對，至少要有一個【分類】"); return; }
+    const plan = computeBulkDiff(blocks);
+    const delClaimCount = plan.itemDeletes.reduce((s,d)=>s+d.claimIds.length,0);
+    const msg = `即將套用：新增 ${plan.itemAdds.length} 項、修改 ${plan.itemUpdates.length} 項、刪除 ${plan.itemDeletes.length} 項`
+      + (delClaimCount>0 ? `（含 ${delClaimCount} 筆認領紀錄）` : "")
+      + (plan.newCategories.length>0 ? `、新增 ${plan.newCategories.length} 個分類` : "")
+      + "。確定送出嗎？";
+    if(!confirm(msg)) return;
+    await commitBulkDiff(plan);
+    toast("已套用批次修改");
+    closeModal();
   };
 }
 
