@@ -81,7 +81,7 @@
   .drawer-head{display:flex;justify-content:space-between;align-items:center;margin-bottom:14px}
   .drawer-head .title{font-weight:800;font-size:18px}
   .modal{background:var(--card);width:100%;max-width:640px;border-radius:16px 16px 0 0;
-    padding:18px 16px calc(18px + var(--safe-b));max-height:85vh;overflow-y:auto;overflow-x:hidden}
+    padding:18px 16px calc(18px + var(--safe-b));max-height:92vh;overflow-y:auto;overflow-x:hidden}
   .modal h3{margin:0 0 12px;font-size:18px}
   .field{margin-bottom:12px}
   .field label{display:block;font-size:13px;color:var(--ink-dim);margin-bottom:4px}
@@ -90,6 +90,12 @@
     border-radius:8px;font-size:16px;font-family:inherit;background:#fff;color:var(--ink)}
   .row{display:flex;gap:8px}
   .row > *{flex:1;min-width:0}
+  .edit-section,.claim-section{border-radius:12px;padding:14px;margin-bottom:14px}
+  .edit-section{background:#f6f1e9;border:1px solid var(--line)}
+  .claim-section{background:#fff;border:1px solid var(--accent)}
+  .section-label{display:flex;align-items:center;gap:6px;font-size:13px;font-weight:700;
+    color:var(--ink-dim);margin-bottom:10px}
+  .claim-section .section-label{color:var(--accent)}
   .pill{display:inline-block;font-size:12px;padding:3px 9px;border-radius:999px;background:#f1ece3;color:var(--ink-dim)}
   .toast{position:fixed;left:50%;bottom:calc(var(--tab-h) + var(--safe-b) + 16px);transform:translateX(-50%);
     background:#2b2420;color:#fff;padding:10px 16px;border-radius:999px;font-size:14px;z-index:40;
@@ -1338,36 +1344,47 @@ function openClaimModal(item, fam){
   const defaultQty = mineClaim ? mineClaim.qty : (remaining>0 ? remaining : 1);
 
   const state = { qty: defaultQty };
+  const catOptions = categories.map(c=>`<option value="${c.id}" ${c.id===item.categoryId?"selected":""}>${esc(c.name)}</option>`).join("");
   root_showModal(`
     <h3>調整項目</h3>
-    <div class="field"><label>項目名稱</label><input id="editItemName" value="${esc(item.name)}" /></div>
-    <div class="row">
-      <div class="field"><label>單位</label><input id="editItemUnit" value="${esc(item.unit||"")}" /></div>
-      <div class="field"><label>需要數量</label><input id="editItemQtyNeeded" type="number" min="1" value="${item.qtyNeeded||1}" /></div>
-    </div>
-    <button class="btn secondary block" id="saveItemMeta" style="margin-bottom:16px">儲存項目資訊</button>
-    <div style="font-size:13px;color:var(--ink-dim);margin:0 0 10px">需要 ${item.qtyNeeded} ${esc(item.unit||"")}，目前已認領 ${claimedQty}</div>
-    <div class="field"><label>我認領（${esc(item.unit||"")}）</label>
-      <div class="stepper" data-key="qty">
-        <button type="button" class="stepbtn minus">－</button>
-        <span class="stepval">${state.qty}</span>
-        <button type="button" class="stepbtn plus">＋</button>
+    <div class="edit-section">
+      <div class="section-label"><span class="msi" style="font-size:18px">edit</span>項目資訊</div>
+      <div class="field"><label>項目名稱</label><input id="editItemName" value="${esc(item.name)}" /></div>
+      <div class="field"><label>分類</label><select id="editItemCat">${catOptions}</select></div>
+      <div class="row">
+        <div class="field"><label>單位</label><input id="editItemUnit" value="${esc(item.unit||"")}" /></div>
+        <div class="field"><label>需要數量</label><input id="editItemQtyNeeded" type="number" min="1" value="${item.qtyNeeded||1}" /></div>
       </div>
+      <div class="field" style="margin-bottom:0"><label>備註</label><input id="editItemNote" value="${esc(item.note||"")}" placeholder="選填" /></div>
+      <button class="btn secondary block" id="saveItemMeta" style="margin-top:14px">儲存項目資訊</button>
     </div>
-    <div class="row">
-      <button class="btn block" id="saveClaim">${mineClaim ? "更新" : "確定認領"}</button>
-      ${mineClaim ? `<button class="btn secondary block" id="cancelClaim">取消認領</button>` : ""}
+    <div class="claim-section">
+      <div class="section-label"><span class="msi" style="font-size:18px">check_circle</span>我的認領</div>
+      <div style="font-size:13px;color:var(--ink-dim);margin:0 0 10px">需要 ${item.qtyNeeded} ${esc(item.unit||"")}，目前已認領 ${claimedQty}</div>
+      <div class="field"><label>我認領（${esc(item.unit||"")}）</label>
+        <div class="stepper" data-key="qty">
+          <button type="button" class="stepbtn minus">－</button>
+          <span class="stepval">${state.qty}</span>
+          <button type="button" class="stepbtn plus">＋</button>
+        </div>
+      </div>
+      <div class="row">
+        <button class="btn block" id="saveClaim">${mineClaim ? "更新" : "確定認領"}</button>
+        ${mineClaim ? `<button class="btn secondary block" id="cancelClaim">取消認領</button>` : ""}
+      </div>
     </div>
   `);
   document.getElementById("saveItemMeta").onclick = async ()=>{
     const newName = document.getElementById("editItemName").value.trim();
+    const newCategoryId = document.getElementById("editItemCat").value;
     const newUnit = document.getElementById("editItemUnit").value.trim();
     const newQtyNeeded = Number(document.getElementById("editItemQtyNeeded").value) || 1;
+    const newNote = document.getElementById("editItemNote").value.trim();
     if(!newName){ toast("項目名稱不能空白"); return; }
     await updateDoc(doc(db, `events/${currentEvent.id}/items/${item.id}`), {
-      name: newName, unit: newUnit, qtyNeeded: newQtyNeeded
+      name: newName, categoryId: newCategoryId, unit: newUnit, qtyNeeded: newQtyNeeded, note: newNote
     });
-    item.name = newName; item.unit = newUnit; item.qtyNeeded = newQtyNeeded;
+    item.name = newName; item.categoryId = newCategoryId; item.unit = newUnit; item.qtyNeeded = newQtyNeeded; item.note = newNote;
     toast("已更新項目資訊");
   };
   const qtyStepper = modalMask.querySelector(".stepper");
