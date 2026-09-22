@@ -868,6 +868,9 @@ function renderClaimsTab(){
       <button class="btn secondary block" id="bulkEditBtn">
         <span class="msi" style="font-size:18px">edit_note</span> 批次編輯
       </button>
+      <button class="btn secondary block" id="manageCatBtn">
+        <span class="msi" style="font-size:18px">category</span> 管理分類
+      </button>
     </div>
     ${catBlocks}
   `;
@@ -875,6 +878,7 @@ function renderClaimsTab(){
   root.querySelectorAll(".chip[data-c]").forEach(b=> b.onclick = ()=>{ categoryFilter = b.dataset.c; renderClaimsTab(); });
   document.getElementById("addItemBtn").onclick = openAddItemModal;
   document.getElementById("bulkEditBtn").onclick = openBulkEditModal;
+  document.getElementById("manageCatBtn").onclick = openManageCategoriesModal;
   // 先掛滑動手勢（含它自己的 click 攔截），再掛認領用的 click，
   // 同一顆元素上先註冊的 listener 會先跑，滑動判定才攔得住認領誤觸
   root.querySelectorAll(".swipe-wrap").forEach(wrap=> attachSwipeToDelete(wrap));
@@ -1168,6 +1172,72 @@ function openBulkEditModal(){
     toast("已套用批次修改");
     closeModal();
   };
+}
+
+// ---------- 管理分類（改名、合併刪除；不影響項目的認領紀錄） ----------
+function openManageCategoriesModal(){
+  const rows = categories.map(c=>{
+    const itemCount = items.filter(i=>i.categoryId===c.id).length;
+    const otherCats = categories.filter(o=>o.id!==c.id);
+    return `<div class="field" style="border:1px solid var(--line);border-radius:10px;padding:10px;margin-bottom:10px">
+      <input class="catNameInput" data-id="${c.id}" value="${esc(c.name)}" style="margin-bottom:8px" />
+      <div style="font-size:12px;color:var(--ink-dim);margin-bottom:8px">目前 ${itemCount} 項</div>
+      ${otherCats.length ? `
+      <div class="row">
+        <select class="catMergeTarget" data-id="${c.id}">
+          <option value="">刪除這個分類…</option>
+          ${otherCats.map(o=>`<option value="${o.id}">併入「${esc(o.name)}」</option>`).join("")}
+        </select>
+        <button type="button" class="btn secondary catMergeBtn" data-id="${c.id}">刪除分類</button>
+      </div>` : ""}
+    </div>`;
+  }).join("");
+  root_showModal(`
+    <h3>管理分類</h3>
+    <div style="font-size:13px;color:var(--ink-dim);margin-bottom:12px">
+      改名字直接改完按下面「儲存名稱」。要刪除分類要先選好項目要併入哪個分類——底下所有項目會搬過去該分類，項目本身跟認領紀錄都不會變。
+    </div>
+    ${rows}
+    <button class="btn block" id="saveCatNames">儲存名稱</button>
+  `);
+  document.getElementById("saveCatNames").onclick = async ()=>{
+    const inputs = document.querySelectorAll(".catNameInput");
+    for(const inp of inputs){
+      const id = inp.dataset.id;
+      const newName = inp.value.trim();
+      const cat = categories.find(c=>c.id===id);
+      if(newName && newName!==cat.name){
+        await updateDoc(doc(db, `events/${currentEvent.id}/categories/${id}`), {name:newName});
+      }
+    }
+    toast("已更新分類名稱"); closeModal();
+  };
+  document.querySelectorAll(".catMergeBtn").forEach(btn=>{
+    btn.onclick = async ()=>{
+      const id = btn.dataset.id;
+      const select = document.querySelector(`.catMergeTarget[data-id="${id}"]`);
+      const targetId = select.value;
+      const cat = categories.find(c=>c.id===id);
+      const itemCount = items.filter(i=>i.categoryId===id).length;
+      if(!targetId){
+        if(itemCount>0){ toast("這個分類還有項目，請先選要併入哪個分類"); return; }
+        if(!confirm(`確定要刪除空分類「${cat.name}」嗎？`)) return;
+        await deleteDoc(doc(db, `events/${currentEvent.id}/categories/${id}`));
+        toast("已刪除分類"); closeModal();
+        return;
+      }
+      const targetCat = categories.find(c=>c.id===targetId);
+      if(!confirm(`確定要把「${cat.name}」的 ${itemCount} 項全部併入「${targetCat.name}」，並刪除「${cat.name}」這個分類嗎？`)) return;
+      const batch = writeBatch(db);
+      const baseOrder = items.filter(i=>i.categoryId===targetId).length;
+      items.filter(i=>i.categoryId===id).forEach((it, idx)=>{
+        batch.update(doc(db, `events/${currentEvent.id}/items/${it.id}`), { categoryId: targetId, order: baseOrder+idx });
+      });
+      batch.delete(doc(db, `events/${currentEvent.id}/categories/${id}`));
+      await batch.commit();
+      toast("已合併分類"); closeModal();
+    };
+  });
 }
 
 function openClaimModal(item, fam){
