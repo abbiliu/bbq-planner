@@ -147,6 +147,9 @@
   .swipe-wrap{position:relative;overflow:hidden;border-radius:10px;margin-bottom:4px}
   .swipe-wrap .claim-row{margin-bottom:0;touch-action:pan-y;position:relative;
     transition:transform .2s ease}
+  .swipe-wrap.dragging{overflow:visible;box-shadow:0 10px 28px rgba(0,0,0,.22);opacity:.98}
+  .swipe-wrap.dragging .claim-row{transition:none}
+  .drag-placeholder{border:2px dashed var(--accent);border-radius:10px;background:rgba(217,98,43,.08)}
   .swipe-actions{position:absolute;top:0;right:0;bottom:0;width:84px;display:flex}
   .swipe-actions button{flex:1;border:none;background:var(--danger);color:#fff;
     display:flex;flex-direction:column;align-items:center;justify-content:center;
@@ -846,7 +849,7 @@ function renderClaimsTab(){
           </div>
         </div>`;
       }).join("");
-      return `<div class="cat-title">${esc(c.name)}</div>${rows}`;
+      return `<div class="cat-title">${esc(c.name)}</div><div class="cat-group" data-cat="${c.id}">${rows}</div>`;
     }).join("") || `<div class="empty">沒有符合條件的項目</div>`;
 
   const catChips = [`<button class="chip ${categoryFilter==='all'?'active':''}" data-c="all">全部分類</button>`]
@@ -875,9 +878,11 @@ function renderClaimsTab(){
   root.querySelectorAll(".chip[data-c]").forEach(b=> b.onclick = ()=>{ categoryFilter = b.dataset.c; renderClaimsTab(); });
   document.getElementById("addItemBtn").onclick = openAddItemModal;
   document.getElementById("moreActionsBtn").onclick = openMoreActionsMenu;
-  // 先掛滑動手勢（含它自己的 click 攔截），再掛認領用的 click，
+  // 先掛滑動／長按手勢（含它自己的 click 攔截），再掛認領用的 click，
   // 同一顆元素上先註冊的 listener 會先跑，滑動判定才攔得住認領誤觸
-  root.querySelectorAll(".swipe-wrap").forEach(wrap=> attachSwipeToDelete(wrap));
+  root.querySelectorAll(".cat-group").forEach(group=>{
+    group.querySelectorAll(":scope > .swipe-wrap").forEach(wrap=> attachRowGestures(wrap, group));
+  });
   root.querySelectorAll(".claim-row").forEach(row=>{
     row.addEventListener("click", (ev)=>{
       if(ev.target.closest(".qtyEditBtn")) return;
@@ -910,24 +915,40 @@ document.addEventListener("click", (ev)=>{
   if(!ev.target.closest(".swipe-wrap")) closeAllSwipes();
 }, true);
 
-function attachSwipeToDelete(wrap){
+function attachRowGestures(wrap, group){
   const row = wrap.querySelector(".claim-row");
   const actionsEl = wrap.querySelector(".swipe-actions");
   const W = actionsEl.offsetWidth || 84;
-  let startX=0, startY=0, curX=0, dragging=false, moved=false, axis=null;
+  let startX=0, startY=0, curX=0, active=false, moved=false, axis=null;
+  let pressTimer=null, dragMode=false, placeholder=null, pointerOffsetY=0;
+
+  function clearPressTimer(){ if(pressTimer){ clearTimeout(pressTimer); pressTimer=null; } }
 
   row.addEventListener("pointerdown", (ev)=>{
     if(ev.pointerType==="mouse" && ev.button!==0) return;
     startX = ev.clientX; startY = ev.clientY;
-    dragging = true; moved = false; axis = null;
+    active = true; moved = false; axis = null; dragMode = false;
     row.style.transition = "none";
     try{ row.setPointerCapture(ev.pointerId); }catch(e){}
+    clearPressTimer();
+    pressTimer = setTimeout(()=>{
+      if(!active || axis!==null) return; // 已經被判定成滑動了，不啟動長按拖曳
+      if(claimFilter!=="all"){ toast("請切換到「全部狀態」才能拖曳排序"); return; }
+      startReorder(ev);
+    }, 480);
   });
+
   row.addEventListener("pointermove", (ev)=>{
-    if(!dragging) return;
+    if(!active) return;
+    if(dragMode){
+      ev.preventDefault();
+      moveReorder(ev);
+      return;
+    }
     const dx = ev.clientX - startX, dy = ev.clientY - startY;
-    if(axis===null && (Math.abs(dx)>6 || Math.abs(dy)>6)){
+    if(axis===null && (Math.abs(dx)>8 || Math.abs(dy)>8)){
       axis = Math.abs(dx) > Math.abs(dy) ? "x" : "y";
+      clearPressTimer();
       if(axis==="x") closeAllSwipes();
     }
     if(axis!=="x") return;
@@ -936,10 +957,13 @@ function attachSwipeToDelete(wrap){
     curX = Math.min(0, Math.max(-W-16, base + dx));
     row.style.transform = `translateX(${curX}px)`;
   });
+
   function endDrag(){
-    if(!dragging) return;
-    dragging = false;
+    if(!active) return;
+    active = false;
+    clearPressTimer();
     row.style.transition = "";
+    if(dragMode){ finishReorder(); return; }
     if(axis==="x"){
       if(curX < -W/2){ wrap.classList.add("open"); row.style.transform = `translateX(-${W}px)`; }
       else { wrap.classList.remove("open"); row.style.transform = "translateX(0)"; }
@@ -948,7 +972,7 @@ function attachSwipeToDelete(wrap){
   row.addEventListener("pointerup", endDrag);
   row.addEventListener("pointercancel", endDrag);
 
-  // 攔截點擊：剛滑動過、或這一列已經是打開狀態時，這次點擊不要觸發認領
+  // 攔截點擊：剛滑動／拖曳過、或這一列已經是打開狀態時，這次點擊不要觸發認領
   row.addEventListener("click", (ev)=>{
     if(moved){ ev.stopImmediatePropagation(); moved=false; return; }
     if(wrap.classList.contains("open")){
@@ -957,6 +981,58 @@ function attachSwipeToDelete(wrap){
       row.style.transform = "translateX(0)";
     }
   });
+
+  // ---- 長按拖曳排序 ----
+  function startReorder(ev){
+    dragMode = true; axis = "drag"; moved = true;
+    closeAllSwipes();
+    const rect = wrap.getBoundingClientRect();
+    pointerOffsetY = ev.clientY - rect.top;
+    placeholder = document.createElement("div");
+    placeholder.className = "swipe-wrap drag-placeholder";
+    placeholder.style.height = rect.height + "px";
+    wrap.parentNode.insertBefore(placeholder, wrap);
+    wrap.classList.add("dragging");
+    wrap.style.position = "fixed";
+    wrap.style.left = rect.left + "px";
+    wrap.style.top = rect.top + "px";
+    wrap.style.width = rect.width + "px";
+    wrap.style.zIndex = "50";
+    if(navigator.vibrate) navigator.vibrate(12);
+  }
+  function moveReorder(ev){
+    wrap.style.top = (ev.clientY - pointerOffsetY) + "px";
+    const siblings = Array.from(group.querySelectorAll(":scope > .swipe-wrap")).filter(el=>el!==wrap && el!==placeholder);
+    let target = null;
+    for(const sib of siblings){
+      const r = sib.getBoundingClientRect();
+      if(ev.clientY < r.top + r.height/2){ target = sib; break; }
+    }
+    if(target){
+      if(placeholder.nextSibling!==target) group.insertBefore(placeholder, target);
+    } else if(placeholder!==group.lastElementChild){
+      group.appendChild(placeholder);
+    }
+  }
+  async function finishReorder(){
+    wrap.classList.remove("dragging");
+    wrap.style.position = ""; wrap.style.left = ""; wrap.style.top = "";
+    wrap.style.width = ""; wrap.style.zIndex = "";
+    if(placeholder && placeholder.parentNode){
+      placeholder.parentNode.insertBefore(wrap, placeholder);
+      placeholder.remove();
+    }
+    placeholder = null; dragMode = false; axis = null;
+    const ids = Array.from(group.querySelectorAll(":scope > .swipe-wrap"))
+      .map(w=> w.querySelector(".claim-row")?.dataset.id).filter(Boolean);
+    const batch = writeBatch(db);
+    let changed = false;
+    ids.forEach((id, idx)=>{
+      const it = items.find(i=>i.id===id);
+      if(it && (it.order||0)!==idx){ changed = true; batch.update(doc(db, `events/${currentEvent.id}/items/${id}`), {order: idx}); }
+    });
+    if(changed) await batch.commit();
+  }
 }
 
 async function confirmDeleteItem(itemId){
