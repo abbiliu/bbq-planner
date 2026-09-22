@@ -865,11 +865,8 @@ function renderClaimsTab(){
       <button class="btn secondary block" id="addItemBtn">
         <span class="msi" style="font-size:18px">add</span> 新增項目
       </button>
-      <button class="btn secondary block" id="bulkEditBtn">
-        <span class="msi" style="font-size:18px">edit_note</span> 批次編輯
-      </button>
-      <button class="btn secondary block" id="manageCatBtn">
-        <span class="msi" style="font-size:18px">category</span> 管理分類
+      <button class="btn secondary" id="moreActionsBtn" style="flex:0 0 auto;padding:12px 14px">
+        <span class="msi" style="font-size:20px">more_horiz</span>
       </button>
     </div>
     ${catBlocks}
@@ -877,8 +874,7 @@ function renderClaimsTab(){
   root.querySelectorAll(".chip[data-f]").forEach(b=> b.onclick = ()=>{ claimFilter = b.dataset.f; renderClaimsTab(); });
   root.querySelectorAll(".chip[data-c]").forEach(b=> b.onclick = ()=>{ categoryFilter = b.dataset.c; renderClaimsTab(); });
   document.getElementById("addItemBtn").onclick = openAddItemModal;
-  document.getElementById("bulkEditBtn").onclick = openBulkEditModal;
-  document.getElementById("manageCatBtn").onclick = openManageCategoriesModal;
+  document.getElementById("moreActionsBtn").onclick = openMoreActionsMenu;
   // 先掛滑動手勢（含它自己的 click 攔截），再掛認領用的 click，
   // 同一顆元素上先註冊的 listener 會先跑，滑動判定才攔得住認領誤觸
   root.querySelectorAll(".swipe-wrap").forEach(wrap=> attachSwipeToDelete(wrap));
@@ -1036,6 +1032,23 @@ function openAddItemModal(){
     });
     toast("已新增項目"); closeModal();
   };
+}
+
+// ---------- 更多操作（收起批次編輯／管理分類，避免按鈕列擠爆手機版面） ----------
+function openMoreActionsMenu(){
+  root_showModal(`
+    <h3>更多操作</h3>
+    <div class="list-row" id="menuBulkEdit" style="cursor:pointer">
+      <div class="info"><div class="n"><span class="msi" style="font-size:20px;vertical-align:-4px;margin-right:6px">edit_note</span>批次編輯</div></div>
+      <span class="msi" style="color:var(--ink-dim)">chevron_right</span>
+    </div>
+    <div class="list-row" id="menuManageCat" style="cursor:pointer">
+      <div class="info"><div class="n"><span class="msi" style="font-size:20px;vertical-align:-4px;margin-right:6px">category</span>管理分類</div></div>
+      <span class="msi" style="color:var(--ink-dim)">chevron_right</span>
+    </div>
+  `);
+  document.getElementById("menuBulkEdit").onclick = ()=>{ closeModal(); openBulkEditModal(); };
+  document.getElementById("menuManageCat").onclick = ()=>{ closeModal(); openManageCategoriesModal(); };
 }
 
 // ---------- 批次編輯（整份物資清單用文字一次改） ----------
