@@ -1497,7 +1497,7 @@ function renderExpensesTab(){
     if(!list.length) return `<div class="cat-title">${title}</div><div class="empty" style="padding:12px 0">還沒有紀錄</div>`;
     const rows = list.map(x=>`
       <div class="list-row">
-        <div class="info">
+        <div class="info editExp" data-id="${x.id}">
           <div class="n">${esc(famName(x.familyId))} 付了 $${Number(x.amount)||0}</div>
           <div class="d">${esc(x.label||"")}</div>
         </div>
@@ -1513,37 +1513,53 @@ function renderExpensesTab(){
     ${groupBlock("食材設備", expenses.filter(x=>x.kind==="food"))}
     ${groupBlock("房費", expenses.filter(x=>x.kind==="room"))}
   `;
-  document.getElementById("addExpBtn").onclick = openExpenseModal;
+  document.getElementById("addExpBtn").onclick = ()=>openExpenseModal();
+  root.querySelectorAll(".editExp").forEach(el=>{
+    el.onclick = ()=>openExpenseModal(expenses.find(x=>x.id===el.dataset.id));
+  });
   root.querySelectorAll(".delExp").forEach(b=>{
     b.onclick = async ()=>{ await deleteDoc(doc(db, `events/${currentEvent.id}/expenses/${b.dataset.id}`)); };
   });
 }
 
-function openExpenseModal(){
+function openExpenseModal(editing){
   const famOptions = families.map(f=>`<option value="${f.id}">${esc(f.name)}</option>`).join("");
   root_showModal(`
-    <h3>新增花費</h3>
+    <h3>${editing ? "編輯花費" : "新增花費"}</h3>
     <div class="field"><label>付款家庭</label><select id="expFam">${famOptions}</select></div>
     <div class="field"><label>金額</label><input id="expAmount" type="number" min="0" placeholder="0" /></div>
     <div class="field"><label>說明</label><input id="expLabel" placeholder="例：木炭、肉品" /></div>
     <div class="field"><label>類型</label>
       <select id="expKind"><option value="food">食材設備</option><option value="room">房費</option></select>
     </div>
-    <button class="btn block" id="saveExp">新增</button>
+    <button class="btn block" id="saveExp">${editing ? "儲存" : "新增"}</button>
   `);
+  if(editing){
+    document.getElementById("expFam").value = editing.familyId;
+    document.getElementById("expAmount").value = editing.amount;
+    document.getElementById("expLabel").value = editing.label || "";
+    document.getElementById("expKind").value = editing.kind;
+  }
   document.getElementById("saveExp").onclick = async ()=>{
     const familyId = document.getElementById("expFam").value;
     const amount = Number(document.getElementById("expAmount").value);
     if(!familyId){ toast("請選付款家庭"); return; }
     if(!amount || amount<=0){ toast("請輸入金額"); return; }
-    await addDoc(collection(db, `events/${currentEvent.id}/expenses`), {
+    const data = {
       familyId, amount,
       label: document.getElementById("expLabel").value.trim(),
-      kind: document.getElementById("expKind").value,
-      itemId: null,
-      createdAt: serverTimestamp()
-    });
-    toast("已新增"); closeModal();
+      kind: document.getElementById("expKind").value
+    };
+    if(editing){
+      await updateDoc(doc(db, `events/${currentEvent.id}/expenses/${editing.id}`), data);
+      toast("已儲存");
+    } else {
+      await addDoc(collection(db, `events/${currentEvent.id}/expenses`), {
+        ...data, itemId: null, createdAt: serverTimestamp()
+      });
+      toast("已新增");
+    }
+    closeModal();
   };
 }
 
