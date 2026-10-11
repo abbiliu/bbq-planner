@@ -1664,6 +1664,15 @@ function renderSettleTab(){
   transfers = transfers.map((t,i)=>({...t, _rank: (()=>{ const i2 = savedOrder.indexOf(transferKey(t)); return i2===-1 ? savedOrder.length+i : i2; })()}))
     .sort((a,b)=>a._rank-b._rank);
 
+  const byName = {};
+  result.forEach(r=>{ byName[r.family.name] = r; });
+  const signed = n => (n>=0?"+":"") + n;
+  const transferFormula = t => {
+    const r = byName[t.from];
+    if(!r) return "";
+    return `食材 ${signed(r.foodNet)} + 房費 ${signed(r.roomNet)} = ${signed(r.totalNet)}`;
+  };
+
   const anyDebt = result.some(r=> r.totalNet < -0.5);
   const anyCredit = result.some(r=> r.totalNet > 0.5);
   const transferEmptyMsg = (anyDebt && !anyCredit)
@@ -1672,7 +1681,9 @@ function renderSettleTab(){
   const transferHtml = transfers.length
     ? transfers.map((t,idx)=>`
       <div class="list-row">
-        <div class="info"><div class="n">${esc(t.from)} → ${esc(t.to)}</div></div>
+        <div class="info"><div class="n">${esc(t.from)} → ${esc(t.to)}</div>
+          <div class="d">${esc(transferFormula(t))}</div>
+        </div>
         <div style="font-weight:700">$${t.amount}</div>
         <div class="reorder-col">
           <button class="iconbtn moveTransfer" data-idx="${idx}" data-dir="-1" ${idx===0?"disabled":""}><span class="msi">keyboard_arrow_up</span></button>
