@@ -127,6 +127,11 @@
     display:flex;align-items:center;border-radius:8px;flex:0 0 auto}
   .iconbtn:active{background:#f1ece3}
   .iconbtn .msi{font-size:22px}
+  .reorder-col{display:flex;flex-direction:column;flex:0 0 auto}
+  .reorder-col .iconbtn{padding:0}
+  .reorder-col .iconbtn .msi{font-size:18px}
+  .reorder-col .iconbtn:disabled{opacity:.25;cursor:default}
+  .reorder-col .iconbtn:disabled:active{background:none}
   .chips{display:flex;gap:6px;overflow-x:auto;margin-bottom:10px;padding-bottom:2px}
   .chip{flex:0 0 auto;font-size:13px;padding:7px 14px;border-radius:999px;border:1px solid var(--line);
     background:#fff;color:var(--ink-dim);cursor:pointer;white-space:nowrap}
@@ -1653,14 +1658,27 @@ function renderSettleTab(){
       <div style="font-weight:700;color:${r.totalNet>=0?"var(--ok)":"var(--danger)"}">${r.totalNet>=0?"+":""}${r.totalNet}</div>
     </div>`).join("");
 
-  const transfers = minimizeTransfers(result.map(r=>({name:r.family.name, amount:r.totalNet})));
+  let transfers = minimizeTransfers(result.map(r=>({name:r.family.name, amount:r.totalNet})));
+  const transferKey = t => `${t.from}→${t.to}`;
+  const savedOrder = currentEvent.settleOrder || [];
+  transfers = transfers.map((t,i)=>({...t, _rank: (()=>{ const i2 = savedOrder.indexOf(transferKey(t)); return i2===-1 ? savedOrder.length+i : i2; })()}))
+    .sort((a,b)=>a._rank-b._rank);
+
   const anyDebt = result.some(r=> r.totalNet < -0.5);
   const anyCredit = result.some(r=> r.totalNet > 0.5);
   const transferEmptyMsg = (anyDebt && !anyCredit)
     ? "還沒有人代墊，暫時算不出轉帳對象"
     : "已經打平，不用轉帳";
   const transferHtml = transfers.length
-    ? transfers.map(t=>`<div class="list-row"><div class="info"><div class="n">${esc(t.from)} → ${esc(t.to)}</div></div><div style="font-weight:700">$${t.amount}</div></div>`).join("")
+    ? transfers.map((t,idx)=>`
+      <div class="list-row">
+        <div class="info"><div class="n">${esc(t.from)} → ${esc(t.to)}</div></div>
+        <div style="font-weight:700">$${t.amount}</div>
+        <div class="reorder-col">
+          <button class="iconbtn moveTransfer" data-idx="${idx}" data-dir="-1" ${idx===0?"disabled":""}><span class="msi">keyboard_arrow_up</span></button>
+          <button class="iconbtn moveTransfer" data-idx="${idx}" data-dir="1" ${idx===transfers.length-1?"disabled":""}><span class="msi">keyboard_arrow_down</span></button>
+        </div>
+      </div>`).join("")
     : `<div class="empty" style="padding:12px 0">${transferEmptyMsg}</div>`;
 
   root.innerHTML = `
@@ -1676,6 +1694,18 @@ function renderSettleTab(){
     </button>
   `;
   document.getElementById("copySettleBtn").onclick = ()=> copySettleAsText(result, transfers, foodTotal, roomTotal);
+  root.querySelectorAll(".moveTransfer").forEach(b=>{
+    b.onclick = async ()=>{
+      const idx = Number(b.dataset.idx), dir = Number(b.dataset.dir);
+      const target = idx + dir;
+      if(target < 0 || target >= transfers.length) return;
+      const keys = transfers.map(transferKey);
+      [keys[idx], keys[target]] = [keys[target], keys[idx]];
+      currentEvent.settleOrder = keys;
+      renderSettleTab();
+      await updateDoc(doc(db,"events",currentEvent.id), {settleOrder: keys});
+    };
+  });
 }
 
 function copySettleAsText(result, transfers, foodTotal, roomTotal){
@@ -1721,7 +1751,7 @@ function boot(){
       if(updated){
         currentEvent = updated;
         topTitle.textContent = `${updated.year} ${updated.venue?.name || ""}`;
-        if(currentTab==="overview") renderActiveTab();
+        if(currentTab==="overview" || currentTab==="settle") renderActiveTab();
       }
     }
   }, (err)=>{
